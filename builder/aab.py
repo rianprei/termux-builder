@@ -4,6 +4,11 @@ from builder.utils import run, find_bin, find_files, ensure_dir, log
 
 
 def build_bundle(config):
+    raise NotImplementedError(
+        "AAB output disabled — res.zip (aapt2 compile) is not resources.pb "
+        "(aapt2 link --proto-format), bundle would be invalid. "
+        "Use termux-builder build for APK output."
+    )
     bundletool = find_bin("bundletool") or find_bin("bundletool.jar")
     java = find_bin("java")
 
