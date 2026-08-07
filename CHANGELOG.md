@@ -1,3 +1,19 @@
+## [3.4.4] - 2026-08-07
+
+### Fixed (auditoria adversarial — achados A-D, validados em device real com build ponta-a-ponta)
+- `builder/signer.py` + `builder/utils.py`: senha de keystore vazava via argv (`--ks-pass pass:<senha>`) e log DEBUG (`ps aux`/`/proc/pid/cmdline` legiveis) — corrigido pra usar `--ks-pass env:VAR`/`--key-pass env:VAR`, senha passada via variavel de ambiente do subprocess, nao mais no argv. `utils.run()` ganhou parametro `env=`.
+- `builder/deps.py`: coordenada GAV (group:artifact:version) sem validacao de charset — artifact malicioso via POM transitivo podia injetar `../` e escrever fora de `.libs/` — adicionada validacao `re.fullmatch`. Group/artifact estrito; version permite sintaxe de range Maven (`[1.0,2.0)`) sem falso-positivo.
+- `builder/deps.py`: extracao de AAR nao-atomica — processo morto no meio deixava `classes.jar` presente sem renomear, cache tratava como valido (estado parcial consumido silenciosamente) — agora extrai em dir temporario e renomeia ao final.
+- `builder/cli.py`: `_setup()` baixava `android.jar` direto no path final (nao-atomico, igual ao bug ja corrigido em deps.py) — corrigido pra usar `.tmp` + `os.rename`.
+- `builder/cache.py`: removido — codigo morto desde v3.4.2, CHANGELOG afirmava removido mas arquivo seguia no pacote.
+
+### Verified (device real, nao so leitura de codigo)
+- Build limpo (`init` + `build`) sem deps: sucesso, 27s
+- Build com `BuildConfig.DEBUG` usado em codigo real: sucesso (valida fix CRITICAL da v3.4.3)
+- Log verbose confirma `env:_TB_KS_PASS` no lugar de `pass:<senha>` real no apksigner invocation
+- Resolucao de dependencia Maven real (androidx.core) + extracao AAR: sucesso, 24 deps resolvidas
+- Regressao propria achada e corrigida no processo: regex de validacao GAV rejeitava range de versao Maven valido (`[2.1.0]`) como falso-positivo — corrigido antes do release
+
 ## [3.4.3] - 2026-08-07
 
 ### Fixed (dupla auditoria cruzada — opencode + hermes, confirmada contra codigo real)
