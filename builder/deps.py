@@ -35,7 +35,12 @@ def resolve(config):
             continue
 
         group, artifact, version = parts
-        if not all(re.fullmatch(r"[A-Za-z0-9._-]+", p) for p in (group, artifact, version)):
+        # group/artifact: strict — no path traversal chars ever needed
+        # version: allow Maven range syntax ([1.0,2.0), [1.0], etc.)
+        if not re.fullmatch(r"[A-Za-z0-9._-]+", group) or not re.fullmatch(r"[A-Za-z0-9._-]+", artifact):
+            log.warning("Unsafe dependency coordinate skipped: %s", coord)
+            continue
+        if not re.fullmatch(r"[A-Za-z0-9._+\[\](),-]+", version):
             log.warning("Unsafe dependency coordinate skipped: %s", coord)
             continue
         group_path = group.replace(".", "/")
