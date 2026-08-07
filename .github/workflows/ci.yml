@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install package (non-editable, matches install.sh)
+        run: pip install .
+      - name: Syntax check all builder modules
+        run: |
+          for f in builder/*.py; do
+            python3 -m py_compile "$f" || exit 1
+          done
+      - name: CLI smoke test (--version, --help, doctor)
+        run: |
+          termux-builder --version
+          termux-builder --help
+          termux-builder doctor || true
+      - name: Init scaffold smoke test
+        run: |
+          termux-builder init smoketest --package com.example.smoke
+          test -f smoketest/project.yml
+          test -f smoketest/AndroidManifest.xml
+          test -f smoketest/src/java/com/example/smoke/MainActivity.java
+
+  # Real APK build requires aapt2/d8/apksigner/ecj — Termux-native binaries,
+  # not available on ubuntu-latest runners. This job is a placeholder that
+  # documents the gap rather than faking coverage: full build verification
+  # only happens on-device (Termux), which this CI cannot reproduce.
+  note:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "Full build pipeline (aapt2/d8/apksigner/ecj+dalvikvm) requires"
+          echo "Termux-native binaries not available on standard GitHub runners."
+          echo "This CI validates Python syntax, packaging, and CLI scaffolding only."
+          echo "Full build verification happens on-device — see CHANGELOG.md for"
+          echo "device-tested confirmations per release."
