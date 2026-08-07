@@ -55,24 +55,31 @@ def main():
         stream=sys.stdout,
     )
 
-    if args.command == "build":
-        _build(args)
-    elif args.command == "init":
-        _init(args)
-    elif args.command == "clean":
-        _clean(args)
-    elif args.command == "deps":
-        _deps(args)
-    elif args.command == "doctor":
-        _doctor()
-    elif args.command == "setup":
-        _setup(args)
-    elif args.command == "test":
-        _test(args)
-    elif args.command == "lint":
-        _lint(args)
-    else:
-        parser.print_help()
+    try:
+        if args.command == "build":
+            _build(args)
+        elif args.command == "init":
+            _init(args)
+        elif args.command == "clean":
+            _clean(args)
+        elif args.command == "deps":
+            _deps(args)
+        elif args.command == "doctor":
+            _doctor()
+        elif args.command == "setup":
+            _setup(args)
+        elif args.command == "test":
+            _test(args)
+        elif args.command == "lint":
+            _lint(args)
+        else:
+            parser.print_help()
+    except (FileNotFoundError, ValueError, RuntimeError) as e:
+        log.error(color("BUILD FAILED: %s", "red"), e)
+        sys.exit(1)
+    except KeyboardInterrupt:
+        log.error(color("Interrupted", "red"))
+        sys.exit(130)
 
 
 def _build(args):
