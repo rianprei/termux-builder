@@ -1,6 +1,7 @@
 import os
 import shutil
 from builder.utils import color
+from builder import __version__
 
 _SYSTEM_ANDROID_JAR = "/data/data/com.termux/files/usr/share/java/android.jar"
 _ECJ_JAR = "/data/data/com.termux/files/usr/share/dex/ecj.jar"
@@ -9,7 +10,7 @@ _ECJ_JAR = "/data/data/com.termux/files/usr/share/dex/ecj.jar"
 def check():
     issues = 0
     print()
-    print(color("termux-builder doctor v3.0.0", "bold"))
+    print(color(f"termux-builder doctor v{__version__}", "bold"))
     print("=" * 40)
     print()
 
