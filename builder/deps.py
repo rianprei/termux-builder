@@ -1,4 +1,6 @@
 import os
+import re
+import shutil
 import zipfile
 import xml.etree.ElementTree as ET
 import requests
@@ -33,6 +35,9 @@ def resolve(config):
             continue
 
         group, artifact, version = parts
+        if not all(re.fullmatch(r"[A-Za-z0-9._-]+", p) for p in (group, artifact, version)):
+            log.warning("Unsafe dependency coordinate skipped: %s", coord)
+            continue
         group_path = group.replace(".", "/")
 
         lib_out = os.path.join(libs_dir, f"{artifact}-{version}")
@@ -150,17 +155,24 @@ def _download(url, dest):
 
 def _extract_aar(aar_path, out_dir):
     log.debug("Extracting AAR: %s", aar_path)
+    tmp_dir = out_dir + ".tmp"
+    if os.path.isdir(tmp_dir):
+        shutil.rmtree(tmp_dir)
+    os.makedirs(tmp_dir, exist_ok=True)
     with zipfile.ZipFile(aar_path) as z:
         for member in z.infolist():
-            member_path = os.path.normpath(os.path.join(out_dir, member.filename))
-            if not member_path.startswith(os.path.normpath(out_dir) + os.sep):
+            member_path = os.path.normpath(os.path.join(tmp_dir, member.filename))
+            if not member_path.startswith(os.path.normpath(tmp_dir) + os.sep):
                 log.warning("Skipping unsafe AAR entry: %s", member.filename)
                 continue
-            z.extract(member, out_dir)
-    classes_jar = os.path.join(out_dir, "classes.jar")
+            z.extract(member, tmp_dir)
+    classes_jar = os.path.join(tmp_dir, "classes.jar")
     if os.path.isfile(classes_jar):
         base = os.path.basename(out_dir)
-        os.rename(classes_jar, os.path.join(out_dir, f"{base}.jar"))
+        os.rename(classes_jar, os.path.join(tmp_dir, f"{base}.jar"))
+    if os.path.isdir(out_dir):
+        shutil.rmtree(out_dir)
+    os.rename(tmp_dir, out_dir)
 
 
 def _has_jar(lib_dir):
