@@ -23,12 +23,19 @@ def package(config):
         for dex in dex_files:
             apk.write(dex, os.path.basename(dex))
 
+        # collect all dex names already added to avoid conflicts
+        used_names = {os.path.basename(d) for d in dex_files}
         dex_index = len(dex_files) + 1
         for jar in config.find_lib_jars():
             lib_dir = os.path.dirname(jar)
             lib_dexes = find_files(lib_dir, ".dex")
             for ld in lib_dexes:
-                apk.write(ld, f"classes{dex_index}.dex")
+                name = f"classes{dex_index}.dex"
+                while name in used_names:
+                    dex_index += 1
+                    name = f"classes{dex_index}.dex"
+                apk.write(ld, name)
+                used_names.add(name)
                 dex_index += 1
 
         for abi, so_path in config.find_native_libs():
