@@ -1,3 +1,8 @@
+## [3.7.1] - 2026-08-07
+
+### Added
+- `.github/workflows/ci.yml`: syntax check (py_compile) + CLI smoke test (--version, --help, doctor, init scaffold) em push/PR pra main. Nao roda build real de APK (aapt2/d8/apksigner/ecj sao binarios Termux-nativos, nao existem em runner ubuntu-latest) — job separado documenta essa limitacao em vez de fingir cobertura.
+
 ## [3.7.0] - 2026-08-07
 
 Fecha de verdade os 2 gaps que a v3.6.x tinha declarado "bloqueio de
