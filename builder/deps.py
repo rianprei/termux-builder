@@ -49,7 +49,11 @@ def resolve(config):
             log.warning("Dependency not found: %s", coord)
             continue
 
-        pom_data = requests.get(pom_url, timeout=30).text
+        try:
+            pom_data = requests.get(pom_url, timeout=30).text
+        except requests.RequestException as e:
+            log.warning("Failed to fetch POM for %s: %s", coord, e)
+            continue
         transitive = _parse_pom_deps(pom_data)
 
         packaging = _detect_packaging(pom_data)
@@ -135,17 +139,24 @@ def _parse_pom_deps(pom_xml):
 
 
 def _download(url, dest):
+    tmp = dest + ".tmp"
     r = requests.get(url, timeout=60, stream=True)
     r.raise_for_status()
-    with open(dest, "wb") as f:
+    with open(tmp, "wb") as f:
         for chunk in r.iter_content(8192):
             f.write(chunk)
+    os.rename(tmp, dest)
 
 
 def _extract_aar(aar_path, out_dir):
     log.debug("Extracting AAR: %s", aar_path)
     with zipfile.ZipFile(aar_path) as z:
-        z.extractall(out_dir)
+        for member in z.infolist():
+            member_path = os.path.normpath(os.path.join(out_dir, member.filename))
+            if not member_path.startswith(os.path.normpath(out_dir) + os.sep):
+                log.warning("Skipping unsafe AAR entry: %s", member.filename)
+                continue
+            z.extract(member, out_dir)
     classes_jar = os.path.join(out_dir, "classes.jar")
     if os.path.isfile(classes_jar):
         base = os.path.basename(out_dir)
