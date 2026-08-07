@@ -11,9 +11,11 @@ Fecha 2 gaps que sobraram da auditoria "100%": R8 nunca era real, e KSP nao exis
 - Classpath descoberta por tentativa real (cada troca resolveu 1 erro distinto): `kotlin-compiler-embeddable.jar` (nao o `kotlin-compiler.jar` puro da dist standalone — esse da AbstractMethodError, ABI incompativel) + `symbol-processing-api.jar` (KSPLogger, ClassNotFoundException sem ele) + resto da dist standalone pras deps transitivas (trove4j, asm — faltam so no embeddable puro).
 - Testado real: plugin carrega e roda sem crash, chega em "No providers found in processor classpath" (esperado sem processor real configurado via `annotation-processors:` — falha alto e claro, nao mente).
 
-### Attempted, genuinamente nao fechado
-- Instalar+abrir APK numa tela real: sem device conectado via adb neste ambiente (`adb devices` vazio, `termux-adb devices` vazio — sem debug USB habilitado). Bloqueio de ambiente, nao de codigo.
-- KSP com processor real de ponta a ponta: infra confirmada funcional (sem crash), mas nao testado com processor gerando codigo de verdade (precisa `annotation-processors:` apontando pra jar real do usuario).
+### Verified apos publicacao (KSP com processor real)
+- Escrito `SymbolProcessor` real (KSP API), compilado, empacotado com `META-INF/services` correto. Rodado via `annotation-processors:` apontando pro jar. Resultado: `KspGenerated.class` compilado de verdade, codigo gerado (`class KspGenerated { fun msg() = "ksp works" }`) confere exatamente com o que o processor escreveu. KSP fechado ponta a ponta, nao so infra.
+
+### Genuinamente bloqueado (permissao de OS, nao de codigo)
+- Instalar+abrir APK numa tela real: `adb devices`/`termux-adb devices` vazios (sem debug USB/wireless habilitado). Tentei ativar via `settings put global adb_wifi_enabled` — `SecurityException: requires android.permission.INTERACT_ACROSS_USERS`. Termux (app sandboxed) nao tem permissao de alterar essa configuracao do sistema; requer o usuario abrir Configuracoes > Opcoes do desenvolvedor manualmente.
 
 ## [3.7.1] - 2026-08-07
 
