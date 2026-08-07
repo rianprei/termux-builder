@@ -5,6 +5,8 @@ from builder.utils import log
 _NS = "http://schemas.android.com/apk/res/android"
 _NS_PREFIX = f"{{{_NS}}}"
 
+# Whitelist merger — only these tags are merged from library manifests.
+# Tags outside this list (e.g. <queries>, <uses-sdk>) are NOT merged.
 # Top-level elements merged by name attribute
 _NAMED_TOP = ("uses-permission", "uses-feature", "permission", "permission-group")
 # <application> children merged by android:name
