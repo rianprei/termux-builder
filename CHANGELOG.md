@@ -1,3 +1,11 @@
+## [3.4.6] - 2026-08-07
+
+### Fixed (hardening, auditoria qwen — 7a rodada, sem CRITICAL/HIGH pendente)
+- `builder/deps.py`: `_extract_aar()` nao bloqueava entradas symlink em AAR — vetor teorico (mitigado por Python 3.12+ no Termux), aplicado hardening: checa `stat.S_ISLNK` via `member.external_attr` antes de extrair.
+
+### Status
+7 rodadas de auditoria (propria, opencode, hermes, 2x adversarial, generica, qwen). Sem achado CRITICAL/HIGH pendente.
+
 ## [3.4.5] - 2026-08-07
 
 ### Fixed (auditoria adversarial rodada 2, contra commit anterior a v3.4.4)
