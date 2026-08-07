@@ -315,7 +315,7 @@ def _setup(args):
     os.makedirs(platform_dir, exist_ok=True)
 
     url = (
-        f"https://github.com/nicbarker/android-jar/raw/main/"
+        f"https://github.com/Reginer/aosp-android-jar/raw/main/"
         f"android-{args.api}/android.jar"
     )
 
