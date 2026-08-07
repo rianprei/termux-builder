@@ -121,7 +121,7 @@ def _build(args):
     deps.resolve(config)
     manifest.merge(config)
     resources.compile_resources(config)
-    resources.link_resources(config)
+    density_splits = resources.link_resources(config) or []
     buildconfig.generate(config)
 
     aidl.compile(config)
@@ -134,6 +134,8 @@ def _build(args):
     dexer.dex(config)
 
     abis = packager.available_abis(config) if config.abi_splits else []
+    install_set = None
+
     if abis:
         apk_paths = []
         for abi in abis:
@@ -147,14 +149,33 @@ def _build(args):
     else:
         packager.package(config)
         apk_path = signer.sign(config)
-        elapsed = time.time() - start
-        log.info("")
-        log.info(color("BUILD SUCCESSFUL in %.1fs", "green"), elapsed)
-        log.info("APK: %s", apk_path)
+
+        if density_splits:
+            signed_splits = []
+            for density, split_apk in density_splits:
+                signed_out = os.path.join(config.build_dir, f"{config.name}-{density}-{config.build_type}.apk")
+                signer.sign_apk(config, split_apk, signed_out)
+                signed_splits.append(signed_out)
+            install_set = [apk_path] + signed_splits
+            log.info("")
+            log.info(color("BUILD SUCCESSFUL in %.1fs", "green"), time.time() - start)
+            log.info("Base APK: %s", apk_path)
+            for p in signed_splits:
+                log.info("Density split: %s", p)
+            log.info("Install with: adb install-multiple %s",
+                     " ".join([os.path.basename(apk_path)] + [os.path.basename(p) for p in signed_splits]))
+        else:
+            elapsed = time.time() - start
+            log.info("")
+            log.info(color("BUILD SUCCESSFUL in %.1fs", "green"), elapsed)
+            log.info("APK: %s", apk_path)
 
     if args.install:
         from builder import installer
-        installer.install(apk_path, args.device)
+        if install_set:
+            installer.install_multiple(install_set, args.device)
+        else:
+            installer.install(apk_path, args.device)
 
 
 def _test(args):
