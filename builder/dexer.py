@@ -26,7 +26,12 @@ def dex(config):
         if not desugar_json:
             raise RuntimeError("desugar: failed to download desugar_jdk_libs — check network, or disable 'desugar' in project.yml")
 
-    if use_d8:
+    use_r8 = config.r8_enabled and config.build_type == "release"
+    if use_r8:
+        if not shutil.which("r8"):
+            raise RuntimeError("r8 enabled but 'r8' binary not found — install: pkg install r8")
+        _run_r8(config, all_classes, desugar_json=desugar_json)
+    elif use_d8:
         _run_d8(config, all_classes, desugar_json=desugar_json)
     else:
         _run_dx(config, all_classes)
@@ -42,19 +47,52 @@ def _has_d8(config):
     return os.path.basename(config.bin_d8) == "d8" and shutil.which("d8") is not None
 
 
+def _run_r8(config, class_files, desugar_json=None):
+    """d8 --release only strips debug info — never runs actual shrink/
+    obfuscate (verified: no mapping.txt possible, no class renaming, even
+    with --release). Real minification needs the separate 'r8' binary."""
+    args = ["r8", "--release"]
+    if desugar_json:
+        args += ["--desugared-lib", desugar_json]
+
+    default_rules = os.path.join(config.build_dir, "default-r8-rules.pro")
+    rules_path = None
+    if config.r8_rules:
+        candidate = os.path.join(config.project_dir, config.r8_rules)
+        if os.path.isfile(candidate):
+            rules_path = candidate
+        else:
+            log.warning("r8-rules file not found: %s — using default keep rules", candidate)
+    if not rules_path:
+        with open(default_rules, "w") as f:
+            f.write(
+                "-keep public class * extends android.app.Activity\n"
+                "-keep public class * extends android.app.Service\n"
+                "-keep public class * extends android.content.BroadcastReceiver\n"
+                "-keep public class * extends android.content.ContentProvider\n"
+                "-keepclassmembers class * extends android.app.Activity { public void *(android.view.View); }\n"
+            )
+        rules_path = default_rules
+    args += ["--pg-conf", rules_path]
+
+    mapping_path = os.path.join(config.build_dir, "mapping.txt")
+    args += ["--pg-map-output", mapping_path]
+
+    args += [
+        "--min-api", str(config.min_sdk),
+        "--lib", config.android_jar,
+        "--output", config.dex_dir,
+        *class_files,
+    ]
+    run(args)
+    log.info("R8 minification: %s (mapping: %s)", config.dex_dir, mapping_path)
+
+
 def _run_d8(config, class_files, desugar_json=None):
     args = [config.bin_d8]
     if desugar_json:
         args += ["--desugared-lib", desugar_json]
-    if config.r8_enabled and config.build_type == "release":
-        log.info("R8 minification enabled")
-        args += ["--release"]
-        if config.r8_rules:
-            rules_path = os.path.join(config.project_dir, config.r8_rules)
-            if os.path.isfile(rules_path):
-                args += ["--pg-conf", rules_path]
-    else:
-        args += [f"--{config.build_type}"]
+    args += [f"--{config.build_type}"]
 
     args += [
         "--min-api", str(config.min_sdk),
