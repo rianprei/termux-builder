@@ -95,7 +95,7 @@ class Config:
         self.bin_aapt2 = self._resolve_bin("aapt2", bins)
         self.bin_javac = self._resolve_bin("javac", bins)
         self.bin_kotlinc = self._resolve_bin("kotlinc", bins)
-        self.bin_d8 = self._resolve_bin("d8", bins)
+        self.bin_d8 = self._resolve_bin("d8", bins) if self._find_bin_direct("d8") else self._resolve_bin("dx", bins)
         self.bin_apksigner = self._resolve_bin("apksigner", bins)
 
     def _resolve_sdk(self, configured):
@@ -113,6 +113,9 @@ class Config:
         raise EnvironmentError(
             "Android SDK not found. Set ANDROID_SDK or run: termux-builder setup"
         )
+
+    def _find_bin_direct(self, name):
+        return find_bin(name) is not None
 
     def _resolve_bin(self, name, bins_config):
         if name in bins_config:
