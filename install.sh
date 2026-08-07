@@ -69,7 +69,7 @@ JAR_PATH="$PLATFORM_DIR/android.jar"
 
 if [ ! -f "$JAR_PATH" ]; then
   mkdir -p "$PLATFORM_DIR"
-  JAR_URL="https://github.com/nicbarker/android-jar/raw/main/android-${API}/android.jar"
+  JAR_URL="https://github.com/Reginer/aosp-android-jar/raw/main/android-${API}/android.jar"
   step "Downloading android.jar (API $API)..."
   wget -qO "$JAR_PATH" "$JAR_URL" 2>/dev/null || {
     warn "android.jar download failed — run: termux-builder setup --api $API"
