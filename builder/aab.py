@@ -80,9 +80,35 @@ def build_bundle(config):
         "--overwrite",
     ])
 
+    _sign_aab(config, aab_path)
+
     size_mb = os.path.getsize(aab_path) / (1024 * 1024)
     log.info("AAB: %s (%.1f MB)", aab_path, size_mb)
     return aab_path
+
+
+def _sign_aab(config, aab_path):
+    """AAB is a JAR-format archive, signed with jarsigner (not apksigner —
+    apksigner targets the APK v2/v3 signature scheme, which does not apply
+    to .aab; Play Console re-signs on upload, but a local jarsigner
+    signature is required for bundletool's own validate/build-apks flows
+    that check signatures)."""
+    if not os.path.isfile(config.keystore_path):
+        raise FileNotFoundError(f"Keystore not found: {config.keystore_path}")
+
+    env = os.environ.copy()
+    env["_TB_KS_PASS"] = config.keystore_store_pass
+
+    log.info("Signing AAB with jarsigner")
+    run([
+        "jarsigner",
+        "-keystore", config.keystore_path,
+        "-storepass:env", "_TB_KS_PASS",
+        "-sigalg", "SHA256withRSA",
+        "-digestalg", "SHA-256",
+        aab_path,
+        config.keystore_alias,
+    ], env=env)
 
 
 def _prepare_base_module(config, base_dir, proto_apk_path):
