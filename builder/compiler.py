@@ -72,7 +72,7 @@ def _compile_java_ecj(java_files, classpath, java_ver, out_dir):
         "-proc:none",
         "-source", str(java_ver),
         "-target", str(java_ver),
-        "-cp", classpath,
+        "-classpath", classpath,
         "-d", out_dir,
         *java_files,
     ])
