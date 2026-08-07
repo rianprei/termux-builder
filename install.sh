@@ -29,7 +29,7 @@ step "Updating package index..."
 pkg update -y -qq 2>/dev/null
 
 step "Installing build tools..."
-pkg install -y openjdk-17 aapt2 apksigner dx python git -qq 2>/dev/null || true
+pkg install -y openjdk-17 aapt2 apksigner dx python git -qq 2>/dev/null || fail "Core package install failed — check network/repo"
 
 step "Installing Python dependencies..."
 pip install --quiet pyyaml requests 2>/dev/null || pip install pyyaml requests
