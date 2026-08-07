@@ -1,3 +1,21 @@
+## [3.4.3] - 2026-08-07
+
+### Fixed (dupla auditoria cruzada — opencode + hermes, confirmada contra codigo real)
+- `builder/cli.py`: `buildconfig.generate()` era chamado ANTES de `resources.link_resources()`; `_link_aapt2()` faz `rmtree(gen_dir)` e apaga o `BuildConfig.java` recem-gerado, nunca recompilado — CRITICAL, feature documentada no README quebrava silenciosamente no primeiro uso real de `BuildConfig.*`
+- `builder/cli.py`: `termux-builder test` nao propagava falha de teste — `testing.run_tests()` retorna False mas exit code sempre 0 (false-green em CI)
+- `builder/cli.py`: except tuple do handler top-level nao capturava `subprocess.CalledProcessError`, `yaml.YAMLError`, `ET.ParseError`, `requests.RequestException` — traceback cru pro usuario final em vez de "BUILD FAILED: ..."
+- `builder/resources.py`: warning de system android.jar nunca disparava — `config.android_jar` ja resolve pro system jar em `config.py`, entao `resources._resolve_android_jar()` retornava no primeiro `if` antes de checar o path — corrigido pra comparar contra a constante
+- `builder/deps.py`: download nao-atomico deixava .jar corrompido permanente no cache se rede caisse no meio — agora escreve em `.tmp` e usa `os.rename`
+- `builder/deps.py`: zip-slip em `_extract_aar()` — AAR malicioso podia escrever fora de `.libs/` via `../` no path — agora valida cada member antes de extrair
+- `builder/deps.py`: GET de POM sem try/except — erro de rede propagava traceback cru — agora `log.warning` + continue
+
+### Rejeitado (claim incorreta de auditoria externa)
+- Claim "dalvikvm nao existe no Termux, fallback ecj+dalvikvm esta quebrado" — FALSO, verificado `which dalvikvm` no device real: `/data/data/com.termux/files/usr/bin/dalvikvm` existe. Fallback ecj+dalvikvm ja foi testado e validado end-to-end em sessao anterior (S60, 2026-08-06).
+- Claim "utils.py run() nao captura stderr, debugging impossivel" — FALSO, `capture_output=False` faz stderr herdar terminal e imprimir ao vivo durante a execucao, nao e silenciado.
+
+### Verified
+- 3 modulos alterados passam `ast.parse` sem erro
+
 ## [3.4.2] - 2026-08-07
 
 ### Fixed (auditoria externa — ChatGPT cross-check, confirmada)
