@@ -94,7 +94,7 @@ def _check_resources(config):
             try:
                 tree = ET.parse(path)
                 root = tree.getroot()
-                _check_layout_depth(root, f, 0, issues)
+                issues += _check_layout_depth(root, f, 0)
             except ET.ParseError:
                 log.warning("Lint: could not parse layout %s", f)
                 issues += 1
@@ -102,10 +102,11 @@ def _check_resources(config):
     return issues
 
 
-def _check_layout_depth(element, filename, depth, issues):
+def _check_layout_depth(element, filename, depth):
+    issues = 0
     if depth > 10:
         log.warning("Lint: %s has deeply nested views (>10 levels)", filename)
-        return issues + 1
+        return 1
     for child in element:
-        issues = _check_layout_depth(child, filename, depth + 1, issues)
+        issues += _check_layout_depth(child, filename, depth + 1)
     return issues
