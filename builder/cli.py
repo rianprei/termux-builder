@@ -46,6 +46,15 @@ def main():
     lint_p = sub.add_parser("lint", help="Run lint checks")
     lint_p.add_argument("project", help="Project directory")
 
+    dec_p = sub.add_parser("decompile", help="Decompile APK with apktool")
+    dec_p.add_argument("apk", help="APK file to decompile")
+    dec_p.add_argument("-o", "--output", help="Output directory")
+    dec_p.add_argument("-f", "--force", action="store_true", help="Overwrite existing output")
+
+    rec_p = sub.add_parser("recompile", help="Recompile decompiled APK with apktool")
+    rec_p.add_argument("dir", help="Decompiled project directory")
+    rec_p.add_argument("-o", "--output", help="Output APK path")
+
     args = parser.parse_args()
 
     level = logging.DEBUG if args.verbose else logging.INFO
@@ -72,6 +81,12 @@ def main():
             _test(args)
         elif args.command == "lint":
             _lint(args)
+        elif args.command == "decompile":
+            from builder.decompile import decompile
+            decompile(args.apk, args.output, args.force)
+        elif args.command == "recompile":
+            from builder.decompile import recompile
+            recompile(args.dir, args.output)
         else:
             parser.print_help()
     except (FileNotFoundError, ValueError, RuntimeError) as e:
