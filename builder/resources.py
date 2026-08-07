@@ -126,7 +126,7 @@ def _link_aapt2(config, android_jar, proto_format=False):
         split_dir = ensure_dir(os.path.join(config.bin_dir, "splits"))
         for density in _DENSITY_BUCKETS:
             split_path = os.path.join(split_dir, f"split-{density}.apk")
-            args += ["--split", f"{split_path}:density={_DENSITY_BUCKETS[density]}"]
+            args += ["--split", f"{split_path}:{_DENSITY_BUCKETS[density]}"]
             split_paths.append((density, split_path))
 
     run(args)
