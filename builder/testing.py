@@ -3,13 +3,17 @@ from builder.utils import run, find_files, find_bin, log, ensure_dir
 
 
 def run_tests(config):
-    test_dir = os.path.join(config.project_dir, "src", "test")
-    if not os.path.isdir(test_dir):
-        log.info("No test directory (src/test) — skipping")
+    test_dirs = [
+        os.path.join(config.project_dir, "src", "test"),
+        os.path.join(config.project_dir, "src", "androidTest"),
+    ]
+    test_dirs = [d for d in test_dirs if os.path.isdir(d)]
+    if not test_dirs:
+        log.info("No test directory (src/test or src/androidTest) — skipping")
         return True
 
-    test_java = find_files(test_dir, ".java")
-    test_kt = find_files(test_dir, ".kt")
+    test_java = [f for d in test_dirs for f in find_files(d, ".java")]
+    test_kt = [f for d in test_dirs for f in find_files(d, ".kt")]
     all_tests = test_java + test_kt
 
     if not all_tests:
