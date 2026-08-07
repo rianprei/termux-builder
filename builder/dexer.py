@@ -79,6 +79,11 @@ def _dex_libraries(config, use_d8):
     if not lib_jars:
         return
 
+    # build --classpath args for d8 (other libs as classpath context)
+    classpath_args = []
+    for j in lib_jars:
+        classpath_args += ["--classpath", j]
+
     for jar in lib_jars:
         lib_dir = os.path.dirname(jar)
         if find_files(lib_dir, ".dex"):
@@ -92,6 +97,7 @@ def _dex_libraries(config, use_d8):
                 "--min-api", str(config.min_sdk),
                 "--lib", config.android_jar,
                 "--output", lib_dir,
+                *classpath_args,
                 jar,
             ])
         else:
