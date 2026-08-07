@@ -11,7 +11,7 @@ curl -s https://raw.githubusercontent.com/rianprei/termux-builder/main/install.s
 ```
 
 O installer:
-- Instala todas as dependencias automaticamente (openjdk-17, aapt2, d8, apksigner, kotlin, python)
+- Instala todas as dependencias automaticamente (openjdk-17, aapt2, dx (d8 fallback via doctor/setup), apksigner, kotlin, python)
 - Baixa `android.jar` (API 34) do GitHub
 - Configura `ANDROID_SDK` nos shell RCs
 - Verifica que tudo funciona no final
