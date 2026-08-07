@@ -1,6 +1,7 @@
 import os
 import re
 import shutil
+import stat
 import zipfile
 import xml.etree.ElementTree as ET
 import requests
@@ -169,6 +170,11 @@ def _extract_aar(aar_path, out_dir):
             member_path = os.path.normpath(os.path.join(tmp_dir, member.filename))
             if not member_path.startswith(os.path.normpath(tmp_dir) + os.sep):
                 log.warning("Skipping unsafe AAR entry: %s", member.filename)
+                continue
+            # symlink entries: external_attr high 16 bits hold unix mode (S_ISLNK)
+            mode = member.external_attr >> 16
+            if stat.S_ISLNK(mode):
+                log.warning("Skipping symlink AAR entry: %s", member.filename)
                 continue
             z.extract(member, tmp_dir)
     classes_jar = os.path.join(tmp_dir, "classes.jar")
