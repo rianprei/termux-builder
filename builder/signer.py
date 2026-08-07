@@ -2,9 +2,9 @@ import os
 from builder.utils import run, log
 
 
-def sign(config):
-    unsigned = os.path.join(config.bin_dir, "unsigned.apk")
-    output_name = f"{config.name}-{config.build_type}.apk"
+def sign(config, abi=None):
+    unsigned = os.path.join(config.bin_dir, f"unsigned-{abi}.apk" if abi else "unsigned.apk")
+    output_name = f"{config.name}-{abi}-{config.build_type}.apk" if abi else f"{config.name}-{config.build_type}.apk"
     signed = os.path.join(config.build_dir, output_name)
 
     log.info("Signing APK")
