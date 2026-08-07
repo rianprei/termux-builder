@@ -60,8 +60,12 @@ def _prepare_base_module(config, base_dir):
     for dex in find_files(config.dex_dir, ".dex"):
         shutil.copy2(dex, os.path.join(dex_dir, os.path.basename(dex)))
 
+    # NOTE: bundletool requires resources.pb (aapt2 link --proto-format output).
+    # res.zip here is aapt2 *compile* output — not the same format.
+    # Full AAB support requires a separate aapt2 link --proto-format step.
     compiled_res = os.path.join(config.compiled_res_dir, "res.zip")
     if os.path.isfile(compiled_res):
+        log.warning("AAB: res.zip is compile output, not resources.pb — bundle may be invalid")
         with zipfile.ZipFile(compiled_res) as z:
             z.extractall(res_dir)
 
