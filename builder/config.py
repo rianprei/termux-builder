@@ -37,6 +37,7 @@ class Config:
         self.compose = android.get("compose", False)
         self.r8_enabled = android.get("r8", False)
         self.r8_rules = android.get("r8-rules", None)
+        self.abi_splits = android.get("abi-splits", False)
 
         self.manifest_path = os.path.join(
             self.project_dir, android.get("manifest-path", "AndroidManifest.xml")
