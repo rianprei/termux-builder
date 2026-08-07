@@ -1,5 +1,15 @@
 import os
+import shutil
 from builder.utils import run, ensure_dir, log
+
+
+def _effective_java_version(config):
+    # dx (legacy) only supports up to Java 8 (class version 52)
+    if os.path.basename(config.bin_d8) != "d8" or shutil.which("d8") is None:
+        if config.java_version > 8:
+            log.info("dx detected — downgrading compile target to Java 8 for compatibility")
+            return 8
+    return config.java_version
 
 
 def compile_java(config):
@@ -17,11 +27,12 @@ def compile_java(config):
 
     lib_jars = config.find_lib_jars()
     classpath = os.pathsep.join([config.android_jar] + lib_jars)
+    java_ver = _effective_java_version(config)
 
     run([
         config.bin_javac,
-        "-source", str(config.java_version),
-        "-target", str(config.java_version),
+        "-source", str(java_ver),
+        "-target", str(java_ver),
         "-classpath", classpath,
         "-nowarn",
         "-proc:none",
@@ -45,12 +56,16 @@ def compile_kotlin(config):
         *lib_jars,
     ])
 
+    java_ver = _effective_java_version(config)
+    # kotlinc jvm-target: dx only supports 1.8
+    jvm_target = "1.8" if java_ver == 8 else str(java_ver)
+
     args = [
         config.bin_kotlinc,
         *kt_files,
         "-classpath", classpath,
         "-d", config.kotlin_classes_dir,
-        "-jvm-target", str(config.java_version),
+        "-jvm-target", jvm_target,
         "-no-reflect",
         "-no-stdlib",
     ]
