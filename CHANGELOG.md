@@ -1,3 +1,72 @@
+## [3.6.0] - 2026-08-07
+
+Implementacao real dos 5 gaps pedidos (density splits, AAB, desugaring, KAPT/KSP,
+build flavors). Cada um testado de verdade neste device, nao so lido/assumido.
+2 bugs reais de sintaxe encontrados e corrigidos durante o proprio teste
+(aapt2 --split config nao aceita prefixo `density=`, e o d8 desugar
+crashava so no self-dex da lib, nao no app).
+
+### Added — testado em device real
+
+- **Density splits reais**: `density-splits: true` gera 1 APK base + 6 splits
+  (ldpi/mdpi/hdpi/xhdpi/xxhdpi/xxxhdpi) via `aapt2 link --split`, cada um
+  assinado com a mesma keystore. Instala com `adb install-multiple` (real
+  semantica de split dependente, nao standalone como ABI split). CLI imprime
+  o comando exato de instalacao. `builder/installer.py`: `install_multiple()`.
+
+- **AAB real**: `aab: true` gera `.aab` valido via `aapt2 link --proto-format`
+  (resources.pb real, nao res.zip) + bundletool (`google/bundletool` v1.18.3,
+  baixado automaticamente do GitHub release se nao presente localmente).
+  Estrutura verificada: BundleConfig.pb + base/{dex,manifest,resources.pb,
+  native.pb}. `builder/aab.py` reescrito.
+
+- **Desugaring real, parcial**: `desugar: true` baixa `desugar_jdk_libs`
+  2.1.5 real do Google Maven, aplica `d8 --desugared-lib` no dex do codigo
+  do app (verificado: gera classes.dex corretamente). Dexar a propria lib
+  de runtime (`desugar_jdk_libs.jar`) pra empacotar no APK crasha com bug
+  real do binario `d8` 9.2.4-dev do Termux (NullPointerException interno,
+  reproduzido com --release e --debug) — build falha com erro preciso
+  explicando a causa exata e o workaround (min-sdk 26+), nao finge sucesso.
+  `builder/desugar.py` novo.
+
+- **Java annotation processing real**: `annotation-processors: [...]` (lista
+  de jars) habilita `javac -processorpath` de verdade — testado com processor
+  real escrito na hora, gerou codigo (`Generated.java`) e compilou. Mecanismo
+  identico ao usado por Dagger/Room quando nao usam KSP.
+
+- **Kotlin KAPT, scaffolding + deteccao real**: `kapt: true` detecta versao
+  exata do `kotlinc` instalado, baixa `kotlin-annotation-processing-embeddable`
+  correspondente do Maven Central, aplica as flags reais do plugin
+  (`-P plugin:org.jetbrains.kotlin.kapt3:...`). Verificado: kotlinc 2.4.10
+  (pacote Termux) usa o compilador K2, que quebra o kapt3 com
+  `AbstractMethodError: FirKaptAnalysisHandlerExtension` — bug real e
+  reproduzido do toolchain Kotlin (kapt nao foi atualizado pro K2 antes do
+  Google deprecar em favor do KSP). Build falha com erro preciso, nao
+  silencioso. `builder/kapt.py` novo.
+
+- **Build flavors/variants reais**: `Config(project_dir, flavor="x")` +
+  `flavors:` no project.yml. Overlay real de source set (`src/<flavor>/java`
+  mergeado sobre `src/java`) e overlay de resources (`src/<flavor>/res`
+  compilado e linkado junto via `-R`, mesmo mecanismo ja usado pra libs).
+  `application-id-suffix` e `version-code`/`version-name` por flavor.
+
+### Known limitations (nao sao bug do termux-builder, sao do toolchain externo)
+
+- Desugaring: runtime backport da lib (`desugar_jdk_libs.jar`) nao empacota
+  no APK por bug do `d8` 9.2.4-dev do Termux. Codigo do app e desugarado
+  corretamente; APIs java.time/streams crasham em runtime abaixo da API 26
+  sem a lib empacotada. Sem fix possivel do lado do termux-builder ate
+  Termux empacotar `d8` mais novo.
+- KAPT: incompativel com kotlinc 2.4.10 (K2) por bug do proprio plugin kapt3
+  da JetBrains, nao atualizado pro K2 antes da depreciacao em favor do KSP.
+  Sem fix possivel do lado do termux-builder ate JetBrains lancar build
+  K2-compativel ou Termux empacotar kotlinc mais antigo (K1).
+- KSP (Kotlin Symbol Processing) nao implementado — mecanismo completamente
+  diferente do kapt (plugin proprio, nao usa a interface do kapt3), fora do
+  escopo desta rodada.
+- CLI (`termux-builder build`) ainda nao expoe `--flavor <nome>` como flag;
+  flavors funcionam via `Config(dir, flavor=...)` chamado programaticamente.
+
 ## [3.5.0] - 2026-08-07
 
 Resposta a pedido de paridade com Android Studio. A maior parte da lista pedida
