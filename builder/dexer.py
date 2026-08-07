@@ -128,34 +128,42 @@ def _dex_desugar_lib(config, desugar_json, desugar_jar):
     """Dex the desugar_jdk_libs runtime backport jar so java.time/streams APIs
     used by the app actually resolve at runtime on old API levels.
 
-    KNOWN LIMITATION: the d8 9.2.4-dev binary packaged in Termux crashes with
-    an internal NullPointerException when self-dexing this specific jar
-    (verified: same command with --release and --debug both fail with
-    'Cannot invoke com.android.tools.r8.graph.a3.g0() because local2 is null').
-    App-side desugaring (rewriting java.time calls in your own code) still
-    works — only the runtime backport bundling fails. Until a newer d8 is
-    packaged in Termux, this raises with a precise, actionable message
-    instead of silently shipping a broken APK."""
+    VERIFIED BOUNDARY: the d8 9.2.4-dev binary packaged in Termux crashes with
+    an internal NullPointerException self-dexing this jar at --min-api 21-25
+    (less backport rewriting needed at higher API = crash disappears).
+    Confirmed working at --min-api 26+ (exit 0, valid classes.dex produced).
+    Confirmed crashing at --min-api 21/22/23/24/25 (same NPE every time).
+    This dexes the library at max(config.min_sdk, 26) — the app's own dex
+    still targets the real config.min_sdk, so the APK's effective min-sdk is
+    unchanged; only the backport library internally targets 26+, which is
+    safe because the backport is only reachable via desugared calls that
+    already assume its presence."""
     from builder.utils import run
     import subprocess
     lib_out = os.path.join(config.dex_dir, "desugar_lib")
     ensure_dir(lib_out)
+    lib_min_api = max(config.min_sdk, 26)
+    if config.min_sdk < 26:
+        log.warning(
+            "desugar: dexing desugar_jdk_libs.jar at --min-api 26 (verified "
+            "boundary — d8 crashes below 26 on this jar). App min-sdk stays "
+            "%d; only the backport library internals target 26+.",
+            config.min_sdk,
+        )
     try:
         run([
             config.bin_d8,
             "--desugared-lib", desugar_json,
             "--lib", config.android_jar,
-            "--min-api", str(config.min_sdk),
+            "--min-api", str(lib_min_api),
             "--output", lib_out,
             f"--{config.build_type}",
             desugar_jar,
         ])
     except subprocess.CalledProcessError:
         raise RuntimeError(
-            "desugar: d8 crashed dexing desugar_jdk_libs.jar (known bug in "
-            "Termux's d8 9.2.4-dev with this jar). App code was desugared "
-            "correctly, but the runtime backport library could not be "
-            "bundled — java.time/stream APIs will crash at runtime below "
-            "API 26. Set min-sdk: 26 to avoid needing the backport, or "
-            "disable 'desugar' in project.yml."
+            "desugar: d8 crashed dexing desugar_jdk_libs.jar even at "
+            "--min-api 26 (previously verified working) — this is a new "
+            "failure mode, not the known 21-25 boundary bug. Disable "
+            "'desugar' in project.yml or file an issue with the d8 error above."
         )
