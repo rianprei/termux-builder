@@ -45,6 +45,10 @@ termux-builder build . --clean
 | `termux-builder build <dir> --clean` | Build limpo (remove artifacts) |
 | `termux-builder clean <dir>` | Remove .build/ |
 | `termux-builder deps <dir>` | Baixa dependencias Maven |
+| `termux-builder test <dir>` | Roda testes JUnit |
+| `termux-builder lint <dir>` | Verifica problemas no codigo |
+| `termux-builder decompile <apk>` | Descompila APK com apktool |
+| `termux-builder recompile <dir>` | Recompila APK descompilado |
 | `termux-builder doctor` | Diagnostico do ambiente |
 | `termux-builder setup --api 34` | Instala android.jar |
 
@@ -98,57 +102,22 @@ myapp/
 │   │   └── com/example/app/
 │   │       └── MainActivity.java
 │   ├── res/
-│   │   ├── layout/          # XMLs de layout
-│   │   ├── values/          # strings, styles, colors
-│   │   └── drawable/        # Imagens e drawables
-│   ├── assets/              # Assets raw
-│   └── jniLibs/             # Native libs (.so)
-├── .libs/                   # Bibliotecas (jar, aar extraido)
-├── .cache/                  # Cache de deps e builds
-└── .build/                  # Output (APK final aqui)
+│   │   ├── layout/
+│   │   ├── values/
+│   │   └── drawable/
+│   └── assets/
 ```
 
-## Features
+## Recursos
 
-### Build Pipeline Completo
-
-| Etapa | Ferramenta | Status |
-|-------|-----------|--------|
-| Compilar resources | aapt2 | ✅ |
-| Gerar R.java | aapt2 link | ✅ |
-| Gerar BuildConfig.java | termux-builder | ✅ |
-| ViewBinding | termux-builder | ✅ |
-| Merge manifests | termux-builder | ✅ |
-| Compilar Java | javac | ✅ |
-| Compilar Kotlin | kotlinc | ✅ |
-| DEX (bytecode Android) | d8 | ✅ |
-| Minificacao R8 | d8 --release | ✅ |
-| Package APK | zip | ✅ |
-| Assinar APK | apksigner | ✅ |
-| Instalar via adb | adb/termux-adb | ✅ |
-
-### Dependencias Maven
-
-Declare no `project.yml` e o builder baixa automaticamente:
+### ViewBinding
 
 ```yaml
-dependencies:
-  - "androidx.core:core:1.12.0"
-  - "com.google.code.gson:gson:2.10.1"
+android:
+  view-binding: true
 ```
 
-- Resolve do Maven Central + Google Maven
-- Resolve dependencias transitivas
-- Suporta .jar e .aar
-- Cache local em `.cache/deps/`
-
-### Suporte a .aar
-
-Bibliotecas .aar sao extraidas automaticamente:
-- `classes.jar` → compilacao
-- `res/` → aapt2
-- `AndroidManifest.xml` → merge
-- `jni/` → native libs
+Gera classes de binding para todos os layouts em `src/res/layout/`.
 
 ### R8 / ProGuard
 
@@ -210,11 +179,13 @@ src/jniLibs/
 | Doctor/diagnostico | ❌ | ❌ | ✅ |
 | Scaffolding (init) | ✅ | ❌ | ✅ |
 | Install via adb | ✅ | ❌ | ✅ |
+| Testes JUnit | ✅ | ❌ | ✅ |
+| Lint | ✅ | ❌ | ✅ |
+| Decompile/Recompile | ❌ | ❌ | ✅ |
 | Compose | ✅ | ❌ | ✅ (experimental) |
 | JNI/native libs | ✅ | ✅ | ✅ |
 | Roda no celular | ❌ | ✅ | ✅ |
 | Sem root | ❌ | ✅ | ✅ |
-| Auto-updater | ❌ | ❌ | ✅ |
 | Self-contained | ❌ | ❌ | ✅ |
 
 ## Diagnostico
@@ -223,7 +194,7 @@ src/jniLibs/
 termux-builder doctor
 ```
 
-Verifica: javac, kotlinc, aapt2, d8, apksigner, android.jar, Python deps, adb. Output verde/vermelho por item.
+Verifica: javac, ecj+dalvikvm, kotlinc, aapt2, d8/dx, apksigner, android.jar, Python deps, adb, apktool. Output verde/vermelho por item.
 
 ## Desinstalar
 
@@ -252,7 +223,7 @@ rm -rf ~/.termux-builder
 
 Projeto independente inspirado por:
 - **[silvadev13/ApkBuilder](https://github.com/silvadev13/ApkBuilder)** — conceito de build CLI lightweight
-- **[nicbarker/android-jar](https://github.com/nicbarker/android-jar)** — android.jar pre-compilado
+- **[Reginer/aosp-android-jar](https://github.com/Reginer/aosp-android-jar)** — android.jar pre-compilado
 
 ## Licenca
 
