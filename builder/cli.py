@@ -2,8 +2,12 @@ import argparse
 import logging
 import os
 import shutil
+import subprocess
 import sys
 import time
+import xml.etree.ElementTree as ET
+import yaml
+import requests
 
 from builder import __version__
 from builder.utils import color, log
@@ -89,7 +93,7 @@ def main():
             recompile(args.dir, args.output)
         else:
             parser.print_help()
-    except (FileNotFoundError, ValueError, RuntimeError) as e:
+    except (FileNotFoundError, ValueError, RuntimeError, subprocess.CalledProcessError, yaml.YAMLError, ET.ParseError, requests.RequestException) as e:
         log.error(color("BUILD FAILED: %s", "red"), e)
         sys.exit(1)
     except KeyboardInterrupt:
@@ -114,10 +118,10 @@ def _build(args):
     os.makedirs(config.bin_dir, exist_ok=True)
 
     deps.resolve(config)
-    buildconfig.generate(config)
     manifest.merge(config)
     resources.compile_resources(config)
     resources.link_resources(config)
+    buildconfig.generate(config)
 
     aidl.compile(config)
 
@@ -144,7 +148,8 @@ def _test(args):
     from builder.config import Config
     from builder import testing
     config = Config(args.project)
-    testing.run_tests(config)
+    if not testing.run_tests(config):
+        sys.exit(1)
 
 
 def _lint(args):
