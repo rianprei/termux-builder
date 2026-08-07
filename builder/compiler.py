@@ -147,7 +147,52 @@ def compile_kotlin(config):
             args += [f"-Xplugin={compose_jar}"]
             log.info("Compose compiler plugin: %s", compose_jar)
 
-    run(args)
+    if getattr(config, "kapt_enabled", False):
+        args += _kapt_args(config)
+
+    import subprocess
+    try:
+        run(args)
+    except subprocess.CalledProcessError:
+        if getattr(config, "kapt_enabled", False):
+            raise RuntimeError(
+                "kapt: kotlinc crashed loading the kapt3 compiler plugin. "
+                "Verified failure on kotlinc 2.4.10 (Termux package): "
+                "'AbstractMethodError: FirKaptAnalysisHandlerExtension does "
+                "not implement doAnalysis' — kapt3 is incompatible with the "
+                "K2 frontend used by this kotlinc version (Kotlin deprecated "
+                "kapt in favor of KSP starting 2.0, and this plugin build "
+                "was not updated for K2). No working fix from termux-builder "
+                "side until JetBrains ships a K2-compatible kapt build or "
+                "Termux packages an older K1 kotlinc. Workarounds: use "
+                "javac-based annotation-processors (Java sources only, see "
+                "compile_java's -processorpath — proven working), or "
+                "disable 'kapt' in project.yml."
+            )
+        raise
+
+
+def _kapt_args(config):
+    """Download the kotlin-annotation-processing-embeddable plugin jar
+    matching the installed kotlinc version (version mismatch causes a hard
+    'Plugin ... is incompatible' error — verified) and wire the real kapt3
+    plugin option flags (-P plugin:org.jetbrains.kotlin.kapt3:...)."""
+    from builder.kapt import setup_kapt_plugin
+    plugin_jar = setup_kapt_plugin(config)
+    if not plugin_jar:
+        raise RuntimeError("kapt: failed to resolve kapt plugin jar — check network or kotlinc version detection")
+
+    sources_dir = ensure_dir(os.path.join(config.build_dir, "kapt", "sources"))
+    classes_dir = ensure_dir(os.path.join(config.build_dir, "kapt", "classes"))
+    stubs_dir = ensure_dir(os.path.join(config.build_dir, "kapt", "stubs"))
+
+    return [
+        f"-Xplugin={plugin_jar}",
+        "-P", f"plugin:org.jetbrains.kotlin.kapt3:sources={sources_dir}",
+        "-P", f"plugin:org.jetbrains.kotlin.kapt3:classes={classes_dir}",
+        "-P", f"plugin:org.jetbrains.kotlin.kapt3:stubs={stubs_dir}",
+        "-P", "plugin:org.jetbrains.kotlin.kapt3:aptMode=stubsAndApt",
+    ]
 
 
 def _find_compose_compiler(config):
