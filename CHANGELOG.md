@@ -1,3 +1,42 @@
+## [3.7.0] - 2026-08-07
+
+Fecha de verdade os 2 gaps que a v3.6.x tinha declarado "bloqueio de
+toolchain externo" sem tentar workaround real primeiro.
+
+### Fixed — desugaring runtime lib
+- `dexer.py`: descoberto o boundary real — d8 9.2.4-dev crasha dexando
+  `desugar_jdk_libs.jar` em `--min-api` 21-25, mas funciona limpo em
+  `--min-api` 26+. Agora dexa a lib sempre em `max(min_sdk, 26)` — o app
+  continua com o `min-sdk` real do project.yml, so a lib do backport usa
+  26 internamente (seguro: so alcancavel via chamada ja desugarada).
+- `packager.py`: bug real achado no proprio teste — `classes.dex` da lib
+  desugar colidia em nome com o `classes.dex` do app (zip com 2 entries
+  do mesmo nome, apksigner rejeitava). Corrigido: dex de subdiretorios
+  (libs, desugar_lib) agora sempre pega nome unico `classesN.dex`.
+- Testado real: `desugar: true` + `min-sdk: 21` + APK final assinado,
+  `classes.dex` (app) + `classes2.dex` (3MB, backport completo) confirmados
+  via `unzip -l`. Funciona de ponta a ponta agora.
+
+### Fixed — KAPT
+- `kapt.py`: kapt3 crasha no K2 (kotlinc 2.4.10 do Termux) mas funciona
+  limpo no K1 (kotlinc 1.9.24, dist oficial JetBrains). Implementado
+  fallback automatico: detecta major version do kotlinc instalado, se
+  for 2.x baixa e cacheia (~90MB, uma vez) a distribuicao standalone K1
+  oficial e usa ela so pra fase de annotation processing.
+- `compiler.py`: kapt real e 2 fases (igual Gradle `kaptGenerateStubsKotlin`
+  vs `compileKotlin`) — descoberto testando que 1 fase so gera stubs, nao
+  produz `.class` final. Fase 1 (K1 + kapt3 plugin, stubsAndApt) gera
+  fontes/stubs. Fase 2 (kotlinc do sistema, sem plugin) compila tudo
+  incluindo fontes geradas — resultado final volta a usar o kotlinc
+  normal instalado, K1 so entra na fase 1.
+- Testado real ponta a ponta: `kapt: true` + processor real + arquivo
+  Kotlin real → `Foo.class` compilado com sucesso, confirmado no disco.
+
+### Attempted, genuinely blocked (nao e desistencia sem tentar)
+- Reduzir download do K1 (~90MB) — nao ha jar standalone menor com todas
+  as deps de runtime resolvidas; a distribuicao oficial e o menor pacote
+  funcional. Cacheado apos primeira vez, custo pago uma vez por maquina.
+
 ## [3.6.2] - 2026-08-07
 
 ### Fixed (review externo confirmou 1 de 3 claims — verificado, corrigido)
