@@ -122,7 +122,9 @@ class Config:
 
     def find_lib_jars(self):
         from builder.utils import find_files
-        return find_files(self.libs_dir, ".jar")
+        # lint.jar causes d8/javac errors — filter it out
+        return [j for j in find_files(self.libs_dir, ".jar")
+                if os.path.basename(j) != "lint.jar"]
 
     def find_native_libs(self):
         libs = []
