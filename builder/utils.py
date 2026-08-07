@@ -20,10 +20,10 @@ def color(text, name):
     return f"{COLORS.get(name, '')}{text}{COLORS['reset']}"
 
 
-def run(args, capture=False, check=True, cwd=None):
+def run(args, capture=False, check=True, cwd=None, env=None):
     cmd = [str(a) for a in args]
     log.debug("$ %s", " ".join(cmd))
-    return subprocess.run(cmd, capture_output=capture, text=True, check=check, cwd=cwd)
+    return subprocess.run(cmd, capture_output=capture, text=True, check=check, cwd=cwd, env=env)
 
 
 def find_bin(name):
