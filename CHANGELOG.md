@@ -1,3 +1,8 @@
+## [3.6.1] - 2026-08-07
+
+### Added
+- `cli.py`: `--flavor <nome>` exposto no `termux-builder build` — testado, rejeita flavor nao declarado, aceita e builda com flavor real
+
 ## [3.6.0] - 2026-08-07
 
 Implementacao real dos 5 gaps pedidos (density splits, AAB, desugaring, KAPT/KSP,
