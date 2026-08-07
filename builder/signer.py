@@ -12,15 +12,20 @@ def sign(config):
     if not os.path.isfile(config.keystore_path):
         raise FileNotFoundError(f"Keystore not found: {config.keystore_path}")
 
+    # pass via env, not argv/pass: — avoids leak through ps/proc/cmdline and debug logs
+    env = os.environ.copy()
+    env["_TB_KS_PASS"] = config.keystore_store_pass
+    env["_TB_KEY_PASS"] = config.keystore_key_pass
+
     run([
         config.bin_apksigner, "sign",
         "--ks", config.keystore_path,
         "--ks-key-alias", config.keystore_alias,
-        "--ks-pass", f"pass:{config.keystore_store_pass}",
-        "--key-pass", f"pass:{config.keystore_key_pass}",
+        "--ks-pass", "env:_TB_KS_PASS",
+        "--key-pass", "env:_TB_KEY_PASS",
         "--out", signed,
         "--in", unsigned,
-    ])
+    ], env=env)
 
     os.remove(unsigned)
     size_mb = os.path.getsize(signed) / (1024 * 1024)
