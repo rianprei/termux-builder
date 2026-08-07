@@ -3,6 +3,8 @@ import os
 import yaml
 from builder.utils import find_bin, log
 
+_SYSTEM_ANDROID_JAR = "/data/data/com.termux/files/usr/share/java/android.jar"
+
 
 class Config:
     def __init__(self, project_dir):
@@ -46,36 +48,19 @@ class Config:
         if not self.package_name:
             raise ValueError("AndroidManifest.xml missing 'package' attribute")
 
-        self.sources_dir = os.path.join(
-            self.project_dir, android.get("sources-path", "src/java")
-        )
-        self.res_dir = os.path.join(
-            self.project_dir, android.get("res-path", "src/res")
-        )
-        self.assets_dir = os.path.join(
-            self.project_dir, android.get("assets-path", "src/assets")
-        )
-        self.jni_dir = os.path.join(
-            self.project_dir, android.get("jni-path", "src/jniLibs")
-        )
+        self.sources_dir = os.path.join(self.project_dir, android.get("sources-path", "src/java"))
+        self.res_dir = os.path.join(self.project_dir, android.get("res-path", "src/res"))
+        self.assets_dir = os.path.join(self.project_dir, android.get("assets-path", "src/assets"))
+        self.jni_dir = os.path.join(self.project_dir, android.get("jni-path", "src/jniLibs"))
 
-        self.keystore_path = os.path.join(
-            self.project_dir, android.get("keystore-path", "debug.keystore")
-        )
+        self.keystore_path = os.path.join(self.project_dir, android.get("keystore-path", "debug.keystore"))
         self.keystore_alias = android.get("keystore-alias", "androiddebugkey")
         self.keystore_store_pass = str(android.get("keystore-store-pass", "android"))
         self.keystore_key_pass = str(android.get("keystore-key-pass", "android"))
 
-        self.libs_dir = os.path.join(
-            self.project_dir, raw.get("libs-path", ".libs")
-        )
-        self.cache_dir = os.path.join(
-            self.project_dir, raw.get("cache-path", ".cache")
-        )
-
-        self.build_dir = os.path.join(
-            self.project_dir, raw.get("build-path", ".build")
-        )
+        self.libs_dir = os.path.join(self.project_dir, raw.get("libs-path", ".libs"))
+        self.cache_dir = os.path.join(self.project_dir, raw.get("cache-path", ".cache"))
+        self.build_dir = os.path.join(self.project_dir, raw.get("build-path", ".build"))
         self.gen_dir = os.path.join(self.build_dir, "gen")
         self.bin_dir = os.path.join(self.build_dir, "bin")
         self.java_classes_dir = os.path.join(self.bin_dir, "classes", "java")
@@ -87,15 +72,14 @@ class Config:
         self.dependencies = raw.get("dependencies", [])
 
         self.sdk_dir = self._resolve_sdk(android.get("sdk-path"))
-        self.android_jar = os.path.join(
-            self.sdk_dir, "platforms", f"android-{self.target_sdk}", "android.jar"
-        )
+        self.android_jar = self._resolve_android_jar()
 
         bins = raw.get("bins", {})
         self.bin_aapt2 = self._resolve_bin("aapt2", bins)
         self.bin_javac = self._resolve_bin("javac", bins)
         self.bin_kotlinc = self._resolve_bin("kotlinc", bins)
-        self.bin_d8 = self._resolve_bin("d8", bins) if self._find_bin_direct("d8") else self._resolve_bin("dx", bins)
+        # prefer d8, fallback to dx (Termux native)
+        self.bin_d8 = self._resolve_bin("d8", bins) if find_bin("d8") else self._resolve_bin("dx", bins)
         self.bin_apksigner = self._resolve_bin("apksigner", bins)
 
     def _resolve_sdk(self, configured):
@@ -106,34 +90,35 @@ class Config:
             if val and os.path.isdir(val):
                 log.info("Using SDK from $%s: %s", var, val)
                 return val
-        home = os.getenv("HOME", "")
-        default = os.path.join(home, ".termux-builder", "sdk")
+        default = os.path.join(os.getenv("HOME", ""), ".termux-builder", "sdk")
         if os.path.isdir(default):
             return default
-        raise EnvironmentError(
-            "Android SDK not found. Set ANDROID_SDK or run: termux-builder setup"
-        )
+        # Return a path even if it doesn't exist — android.jar fallback handles it
+        return default
 
-    def _find_bin_direct(self, name):
-        return find_bin(name) is not None
+    def _resolve_android_jar(self):
+        jar = os.path.join(self.sdk_dir, "platforms", f"android-{self.target_sdk}", "android.jar")
+        if os.path.isfile(jar):
+            return jar
+        # Termux native fallback — no setup needed
+        if os.path.isfile(_SYSTEM_ANDROID_JAR):
+            log.info("SDK not found — using system android.jar (Termux native)")
+            return _SYSTEM_ANDROID_JAR
+        return jar  # will fail with clear error later
 
     def _resolve_bin(self, name, bins_config):
         if name in bins_config:
             return bins_config[name]
         path = find_bin(name)
-        if path:
-            return path
-        return name
+        return path if path else name
 
     def find_java_files(self, base_dir=None):
         from builder.utils import find_files
-        base = base_dir or self.sources_dir
-        return find_files(base, ".java")
+        return find_files(base_dir or self.sources_dir, ".java")
 
     def find_kotlin_files(self, base_dir=None):
         from builder.utils import find_files
-        base = base_dir or self.sources_dir
-        return find_files(base, ".kt")
+        return find_files(base_dir or self.sources_dir, ".kt")
 
     def find_lib_jars(self):
         from builder.utils import find_files
