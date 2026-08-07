@@ -131,9 +131,49 @@ def compile_kotlin(config):
     java_ver = _effective_java_version(config)
     jvm_target = "1.8" if java_ver == 8 else str(java_ver)
 
+    all_kt_files = list(kt_files)
+
+    if getattr(config, "kapt_enabled", False):
+        from builder.kapt import resolve_kapt_toolchain
+        prefix, plugin_jar = resolve_kapt_toolchain(config)
+        if not prefix:
+            raise RuntimeError("kapt: failed to resolve a working kotlinc+kapt3 toolchain — check network")
+
+        # Real kapt is 2 phases (same as Gradle's kaptGenerateStubsKotlin vs
+        # compileKotlin tasks): phase 1 runs the annotation processor via
+        # the kapt3 compiler plugin in stubsAndApt mode, which generates
+        # stub/source files but does NOT produce final .class output
+        # (verified: exit 0, kotlin_classes_dir stays empty after phase 1
+        # alone). Phase 2 is a normal kotlinc compile that also includes
+        # whatever .kt/.java sources kapt generated.
+        sources_dir = ensure_dir(os.path.join(config.build_dir, "kapt", "sources"))
+        classes_dir = ensure_dir(os.path.join(config.build_dir, "kapt", "classes"))
+        stubs_dir = ensure_dir(os.path.join(config.build_dir, "kapt", "stubs"))
+
+        log.info("kapt: running annotation processor (phase 1/2)")
+        run(prefix + [
+            *kt_files,
+            "-classpath", classpath,
+            "-d", stubs_dir,
+            "-jvm-target", jvm_target,
+            "-no-reflect",
+            "-no-stdlib",
+            f"-Xplugin={plugin_jar}",
+            "-P", f"plugin:org.jetbrains.kotlin.kapt3:sources={sources_dir}",
+            "-P", f"plugin:org.jetbrains.kotlin.kapt3:classes={classes_dir}",
+            "-P", f"plugin:org.jetbrains.kotlin.kapt3:stubs={stubs_dir}",
+            "-P", "plugin:org.jetbrains.kotlin.kapt3:aptMode=stubsAndApt",
+            "-P", "plugin:org.jetbrains.kotlin.kapt3:correctErrorTypes=true",
+        ])
+
+        from builder.utils import find_files as _ff
+        generated_kt = _ff(sources_dir, ".kt")
+        all_kt_files = kt_files + generated_kt
+        log.info("kapt: compiling %d file(s) including %d generated (phase 2/2)", len(all_kt_files), len(generated_kt))
+
     args = [
         config.bin_kotlinc,
-        *kt_files,
+        *all_kt_files,
         "-classpath", classpath,
         "-d", config.kotlin_classes_dir,
         "-jvm-target", jvm_target,
@@ -147,52 +187,7 @@ def compile_kotlin(config):
             args += [f"-Xplugin={compose_jar}"]
             log.info("Compose compiler plugin: %s", compose_jar)
 
-    if getattr(config, "kapt_enabled", False):
-        args += _kapt_args(config)
-
-    import subprocess
-    try:
-        run(args)
-    except subprocess.CalledProcessError:
-        if getattr(config, "kapt_enabled", False):
-            raise RuntimeError(
-                "kapt: kotlinc crashed loading the kapt3 compiler plugin. "
-                "Verified failure on kotlinc 2.4.10 (Termux package): "
-                "'AbstractMethodError: FirKaptAnalysisHandlerExtension does "
-                "not implement doAnalysis' — kapt3 is incompatible with the "
-                "K2 frontend used by this kotlinc version (Kotlin deprecated "
-                "kapt in favor of KSP starting 2.0, and this plugin build "
-                "was not updated for K2). No working fix from termux-builder "
-                "side until JetBrains ships a K2-compatible kapt build or "
-                "Termux packages an older K1 kotlinc. Workarounds: use "
-                "javac-based annotation-processors (Java sources only, see "
-                "compile_java's -processorpath — proven working), or "
-                "disable 'kapt' in project.yml."
-            )
-        raise
-
-
-def _kapt_args(config):
-    """Download the kotlin-annotation-processing-embeddable plugin jar
-    matching the installed kotlinc version (version mismatch causes a hard
-    'Plugin ... is incompatible' error — verified) and wire the real kapt3
-    plugin option flags (-P plugin:org.jetbrains.kotlin.kapt3:...)."""
-    from builder.kapt import setup_kapt_plugin
-    plugin_jar = setup_kapt_plugin(config)
-    if not plugin_jar:
-        raise RuntimeError("kapt: failed to resolve kapt plugin jar — check network or kotlinc version detection")
-
-    sources_dir = ensure_dir(os.path.join(config.build_dir, "kapt", "sources"))
-    classes_dir = ensure_dir(os.path.join(config.build_dir, "kapt", "classes"))
-    stubs_dir = ensure_dir(os.path.join(config.build_dir, "kapt", "stubs"))
-
-    return [
-        f"-Xplugin={plugin_jar}",
-        "-P", f"plugin:org.jetbrains.kotlin.kapt3:sources={sources_dir}",
-        "-P", f"plugin:org.jetbrains.kotlin.kapt3:classes={classes_dir}",
-        "-P", f"plugin:org.jetbrains.kotlin.kapt3:stubs={stubs_dir}",
-        "-P", "plugin:org.jetbrains.kotlin.kapt3:aptMode=stubsAndApt",
-    ]
+    run(args)
 
 
 def _find_compose_compiler(config):
