@@ -98,7 +98,7 @@ def check():
     print()
 
     print("Optional tools:")
-    optional = {"adb": "android-tools", "kotlinc": "kotlin", "git": "git", "aidl": "aidl", "d8": "d8"}
+    optional = {"adb": "android-tools", "kotlinc": "kotlin", "git": "git", "aidl": "aidl", "d8": "d8", "apktool": "apktool"}
     for tool, pkg in optional.items():
         path = shutil.which(tool)
         if path:
