@@ -132,13 +132,25 @@ def _build(args):
     compiler.compile_java(config)
     compiler.compile_kotlin(config)
     dexer.dex(config)
-    packager.package(config)
-    apk_path = signer.sign(config)
 
-    elapsed = time.time() - start
-    log.info("")
-    log.info(color("BUILD SUCCESSFUL in %.1fs", "green"), elapsed)
-    log.info("APK: %s", apk_path)
+    abis = packager.available_abis(config) if config.abi_splits else []
+    if abis:
+        apk_paths = []
+        for abi in abis:
+            packager.package(config, abi=abi)
+            apk_paths.append(signer.sign(config, abi=abi))
+        apk_path = apk_paths[0]
+        log.info("")
+        log.info(color("BUILD SUCCESSFUL in %.1fs", "green"), time.time() - start)
+        for p in apk_paths:
+            log.info("APK: %s", p)
+    else:
+        packager.package(config)
+        apk_path = signer.sign(config)
+        elapsed = time.time() - start
+        log.info("")
+        log.info(color("BUILD SUCCESSFUL in %.1fs", "green"), elapsed)
+        log.info("APK: %s", apk_path)
 
     if args.install:
         from builder import installer
