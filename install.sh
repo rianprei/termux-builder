@@ -14,7 +14,7 @@ fail()  { echo -e "${RED}[x]${NC} $1" >&2; exit 1; }
 step()  { echo -e "${BLUE}[>]${NC} $1"; }
 
 echo
-echo -e "${BOLD}termux-builder installer v1.0.0${NC}"
+echo -e "${BOLD}termux-builder installer v3.4.3${NC}"
 echo
 
 [ -n "$PREFIX" ] || fail "Not running in Termux"
