@@ -7,7 +7,7 @@ _SYSTEM_ANDROID_JAR = "/data/data/com.termux/files/usr/share/java/android.jar"
 
 
 class Config:
-    def __init__(self, project_dir):
+    def __init__(self, project_dir, flavor=None):
         self.project_dir = os.path.abspath(project_dir)
         yml_path = os.path.join(self.project_dir, "project.yml")
 
@@ -23,10 +23,16 @@ class Config:
         self.name = raw.get("name", os.path.basename(self.project_dir))
         android = raw["android"]
 
+        self.flavor = flavor
+        self.flavors = raw.get("flavors", {})
+        if flavor is not None and flavor not in self.flavors:
+            raise ValueError(f"Unknown flavor: {flavor} (declared: {list(self.flavors)})")
+        flavor_cfg = self.flavors.get(flavor, {}) if flavor else {}
+
         self.min_sdk = android.get("min-sdk", 21)
         self.target_sdk = android.get("target-sdk", 34)
-        self.version_code = android.get("version-code", 1)
-        self.version_name = str(android.get("version-name", "1.0.0"))
+        self.version_code = flavor_cfg.get("version-code", android.get("version-code", 1))
+        self.version_name = str(flavor_cfg.get("version-name", android.get("version-name", "1.0.0")))
         self.build_type = android.get("build-type", "debug")
         self.java_version = android.get("java-version", 17)
 
@@ -38,6 +44,12 @@ class Config:
         self.r8_enabled = android.get("r8", False)
         self.r8_rules = android.get("r8-rules", None)
         self.abi_splits = android.get("abi-splits", False)
+        self.density_splits = android.get("density-splits", False)
+        self.desugar_enabled = android.get("desugar", False)
+        self.aab_enabled = android.get("aab", False)
+        self.application_id_suffix = flavor_cfg.get("application-id-suffix", "")
+        self.annotation_processors = raw.get("annotation-processors", [])
+        self.kapt_enabled = android.get("kapt", False)
 
         self.manifest_path = os.path.join(
             self.project_dir, android.get("manifest-path", "AndroidManifest.xml")
@@ -48,11 +60,22 @@ class Config:
         self.package_name = ET.parse(self.manifest_path).getroot().attrib.get("package")
         if not self.package_name:
             raise ValueError("AndroidManifest.xml missing 'package' attribute")
+        if self.application_id_suffix:
+            self.package_name += self.application_id_suffix
 
         self.sources_dir = os.path.join(self.project_dir, android.get("sources-path", "src/java"))
         self.res_dir = os.path.join(self.project_dir, android.get("res-path", "src/res"))
         self.assets_dir = os.path.join(self.project_dir, android.get("assets-path", "src/assets"))
         self.jni_dir = os.path.join(self.project_dir, android.get("jni-path", "src/jniLibs"))
+
+        # flavor source-set overlay: src/<flavor>/{java,res,assets} merged over main src/
+        self.flavor_sources_dir = None
+        self.flavor_res_dir = None
+        if flavor:
+            fsrc = os.path.join(self.project_dir, "src", flavor, "java")
+            fres = os.path.join(self.project_dir, "src", flavor, "res")
+            self.flavor_sources_dir = fsrc if os.path.isdir(fsrc) else None
+            self.flavor_res_dir = fres if os.path.isdir(fres) else None
 
         self.keystore_path = os.path.join(self.project_dir, android.get("keystore-path", "debug.keystore"))
         self.keystore_alias = android.get("keystore-alias", "androiddebugkey")
@@ -115,11 +138,27 @@ class Config:
 
     def find_java_files(self, base_dir=None):
         from builder.utils import find_files
-        return find_files(base_dir or self.sources_dir, ".java")
+        if base_dir:
+            return find_files(base_dir, ".java")
+        files = find_files(self.sources_dir, ".java")
+        if self.flavor_sources_dir:
+            files += find_files(self.flavor_sources_dir, ".java")
+        return files
 
     def find_kotlin_files(self, base_dir=None):
         from builder.utils import find_files
-        return find_files(base_dir or self.sources_dir, ".kt")
+        if base_dir:
+            return find_files(base_dir, ".kt")
+        files = find_files(self.sources_dir, ".kt")
+        if self.flavor_sources_dir:
+            files += find_files(self.flavor_sources_dir, ".kt")
+        return files
+
+    def find_res_dirs(self):
+        dirs = [self.res_dir]
+        if self.flavor_res_dir:
+            dirs.append(self.flavor_res_dir)
+        return dirs
 
     def find_lib_jars(self):
         from builder.utils import find_files
