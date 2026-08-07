@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="termux-builder",
-    version="3.4.4",
+    version="3.4.5",
     description="Android Studio no Termux — build APK sem root, sem PC",
     author="rianprei",
     url="https://github.com/rianprei/termux-builder",
