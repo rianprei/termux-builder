@@ -10,6 +10,8 @@ def check(config):
     issues += _check_manifest(config)
     issues += _check_java_sources(config)
     issues += _check_resources(config)
+    issues += _check_unused_resources(config)
+    issues += _check_deprecated_apis(config)
 
     if issues == 0:
         log.info("Lint: no issues found")
@@ -109,4 +111,100 @@ def _check_layout_depth(element, filename, depth):
         return 1
     for child in element:
         issues += _check_layout_depth(child, filename, depth + 1)
+    return issues
+
+_DEPRECATED_APIS = {
+    "android.os.AsyncTask": "use java.util.concurrent or Kotlin coroutines",
+    "org.apache.http": "use java.net.HttpURLConnection or OkHttp",
+    "android.app.Fragment": "use androidx.fragment.app.Fragment",
+    "android.hardware.Camera": "use android.hardware.camera2 or CameraX",
+    "android.webkit.WebViewFragment": "deprecated since API 28",
+}
+
+
+def _check_deprecated_apis(config):
+    issues = 0
+    java_files = find_files(config.sources_dir, ".java")
+    kt_files = find_files(config.sources_dir, ".kt")
+
+    for path in java_files + kt_files:
+        with open(path) as f:
+            content = f.read()
+        basename = os.path.basename(path)
+        for api, hint in _DEPRECATED_APIS.items():
+            if api in content:
+                log.warning("Lint: %s uses deprecated %s — %s", basename, api, hint)
+                issues += 1
+
+    return issues
+
+
+def _check_unused_resources(config):
+    issues = 0
+    declared = set()
+
+    values_dir = os.path.join(config.res_dir, "values")
+    if os.path.isdir(values_dir):
+        for f in os.listdir(values_dir):
+            if not f.endswith(".xml"):
+                continue
+            try:
+                tree = ET.parse(os.path.join(values_dir, f))
+                for elem in tree.getroot():
+                    name = elem.attrib.get("name")
+                    if name:
+                        declared.add(name)
+            except ET.ParseError:
+                continue
+
+    for kind in ("drawable", "layout", "mipmap"):
+        kind_dir = os.path.join(config.res_dir, kind)
+        if os.path.isdir(kind_dir):
+            for f in os.listdir(kind_dir):
+                declared.add(os.path.splitext(f)[0])
+
+    styles = set()
+    if os.path.isdir(values_dir):
+        for f in os.listdir(values_dir):
+            if not f.endswith(".xml"):
+                continue
+            try:
+                tree = ET.parse(os.path.join(values_dir, f))
+                for elem in tree.getroot():
+                    if elem.tag == "style":
+                        name = elem.attrib.get("name")
+                        if name:
+                            styles.add(name)
+            except ET.ParseError:
+                continue
+
+    if not declared:
+        return 0
+
+    referenced = set()
+    all_src = (
+        find_files(config.sources_dir, ".java")
+        + find_files(config.sources_dir, ".kt")
+        + find_files(config.res_dir, ".xml")
+        + ([config.manifest_path] if os.path.isfile(config.manifest_path) else [])
+    )
+    for path in all_src:
+        with open(path) as f:
+            content = f.read()
+        for name in declared:
+            if name in referenced:
+                continue
+            if f"R.string.{name}" in content or f"R.drawable.{name}" in content \
+               or f"R.layout.{name}" in content or f"R.mipmap.{name}" in content \
+               or f"@string/{name}" in content or f"@drawable/{name}" in content \
+               or f"@layout/{name}" in content or f"@mipmap/{name}" in content \
+               or (name in styles and (f"@style/{name}" in content or f"R.style.{name}" in content \
+                   or f'parent="{name}"' in content)):
+                referenced.add(name)
+
+    unused = declared - referenced
+    for name in sorted(unused):
+        log.warning("Lint: resource '%s' declared but never referenced", name)
+        issues += 1
+
     return issues
