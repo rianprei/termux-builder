@@ -29,6 +29,22 @@ def merge(config):
         if name:
             existing_perms.add(name)
 
+    existing_features = set()
+    for feat in main_root.findall("uses-feature"):
+        name = feat.attrib.get(f"{{{ns}}}name", "")
+        if name:
+            existing_features.add(name)
+
+    main_app = main_root.find("application")
+
+    existing_components = set()
+    if main_app is not None:
+        for tag in ("activity", "service", "receiver", "provider"):
+            for comp in main_app.findall(tag):
+                name = comp.attrib.get(f"{{{ns}}}name", "")
+                if name:
+                    existing_components.add(name)
+
     for manifest_path in lib_manifests:
         try:
             lib_tree = ET.parse(manifest_path)
@@ -40,6 +56,23 @@ def merge(config):
                     main_root.append(perm)
                     existing_perms.add(name)
                     log.debug("Merged permission: %s", name)
+
+            for feat in lib_root.findall("uses-feature"):
+                name = feat.attrib.get(f"{{{ns}}}name", "")
+                if name and name not in existing_features:
+                    main_root.append(feat)
+                    existing_features.add(name)
+                    log.debug("Merged feature: %s", name)
+
+            lib_app = lib_root.find("application")
+            if lib_app is not None and main_app is not None:
+                for tag in ("activity", "service", "receiver", "provider", "meta-data"):
+                    for comp in lib_app.findall(tag):
+                        name = comp.attrib.get(f"{{{ns}}}name", "")
+                        if name and name not in existing_components:
+                            main_app.append(comp)
+                            existing_components.add(name)
+                            log.debug("Merged %s: %s", tag, name)
 
         except ET.ParseError:
             log.warning("Failed to parse: %s", manifest_path)
