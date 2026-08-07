@@ -88,6 +88,12 @@ def _find_artifact(group_path, artifact, version, ext):
             if r.status_code == 200:
                 return url
         except requests.RequestException:
+            pass
+        try:
+            r = requests.get(url, timeout=10, stream=True, allow_redirects=True)
+            if r.status_code == 200:
+                return url
+        except requests.RequestException:
             continue
     return None
 
