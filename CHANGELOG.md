@@ -1,3 +1,18 @@
+## [3.4.5] - 2026-08-07
+
+### Fixed (auditoria adversarial rodada 2, contra commit anterior a v3.4.4)
+- `builder/cli.py`: `termux-builder init --package "../../evil"` permitia criar diretorios fora do projeto — sem validacao de package name. Adicionado `re.fullmatch` estilo Java (`com.example.app`) antes de qualquer `os.makedirs`.
+- `builder/resources.py`: segundo branch de `_resolve_android_jar()` era dead code (config.py ja resolve pro system jar antes, primeiro `if` sempre pega) — removido, warning duplicado eliminado.
+
+### Achados da auditoria ja corrigidos em v3.4.4, confirmados stale
+- Path traversal via `artifact`/`version` em `deps.py` (lib_out) — auditoria leu commit anterior ao fix; regex de charset em GAV ja bloqueia
+- Senha de keystore em argv — auditoria leu commit anterior ao fix; `env:VAR` ja em uso desde v3.4.4
+
+### Verified (device real)
+- `dalvikvm -cp ecj.jar org.eclipse.jdt.internal.compiler.batch.Main -version` executa e imprime versao do compiler — fallback ecj+dalvikvm CONFIRMADO funcional, nao so binario presente
+- `termux-builder init x --package "../../evil"` rejeitado com exit 1
+- Analise: `CalledProcessError.stderr` fica None com `capture_output=False` (streaming ao vivo, decisao anterior) — fix de "capturar stderr no handler" nao teria efeito real, descartado
+
 ## [3.4.4] - 2026-08-07
 
 ### Fixed (auditoria adversarial — achados A-D, validados em device real com build ponta-a-ponta)
