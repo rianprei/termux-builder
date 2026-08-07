@@ -71,6 +71,7 @@ def run_tests(config):
         test_classes_dir,
         config.java_classes_dir,
         config.kotlin_classes_dir,
+        config.android_jar,
         junit_jar,
         *lib_jars,
     ])
