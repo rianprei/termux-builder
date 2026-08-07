@@ -4,10 +4,10 @@ import zipfile
 from builder.utils import find_files, log
 
 
-def package(config):
-    log.info("Packaging APK")
+def package(config, abi=None):
+    log.info("Packaging APK%s", f" ({abi})" if abi else "")
 
-    unsigned = os.path.join(config.bin_dir, "unsigned.apk")
+    unsigned = os.path.join(config.bin_dir, f"unsigned-{abi}.apk" if abi else "unsigned.apk")
     base_apk = os.path.join(config.bin_dir, "gen.apk.res")
 
     if not os.path.isfile(base_apk):
@@ -38,9 +38,15 @@ def package(config):
                 used_names.add(name)
                 dex_index += 1
 
-        for abi, so_path in config.find_native_libs():
-            arc = f"lib/{abi}/{os.path.basename(so_path)}"
+        for lib_abi, so_path in config.find_native_libs():
+            if abi and lib_abi != abi:
+                continue
+            arc = f"lib/{lib_abi}/{os.path.basename(so_path)}"
             apk.write(so_path, arc)
 
     log.info("APK packaged: %s", unsigned)
     return unsigned
+
+
+def available_abis(config):
+    return sorted({a for a, _ in config.find_native_libs()})
