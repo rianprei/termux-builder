@@ -71,6 +71,10 @@ def link_resources(config):
 
 def _link_aapt2(config, android_jar):
     log.info("Linking resources (aapt2)")
+    # clean gen_dir so stale R.java from old package names is removed
+    import shutil
+    if os.path.isdir(config.gen_dir):
+        shutil.rmtree(config.gen_dir)
     ensure_dir(config.gen_dir)
 
     args = [
