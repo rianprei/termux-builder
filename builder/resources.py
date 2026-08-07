@@ -9,6 +9,11 @@ _SYSTEM_ANDROID_JAR = "/data/data/com.termux/files/usr/share/java/android.jar"
 
 def _resolve_android_jar(config):
     if os.path.isfile(config.android_jar):
+        if config.android_jar == _SYSTEM_ANDROID_JAR:
+            log.warning(
+                "Using system android.jar — aapt2 link will fail with themes. "
+                "Run: termux-builder setup"
+            )
         return config.android_jar
     if os.path.isfile(_SYSTEM_ANDROID_JAR):
         log.warning(
