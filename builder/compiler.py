@@ -133,6 +133,43 @@ def compile_kotlin(config):
 
     all_kt_files = list(kt_files)
 
+    if getattr(config, "ksp_enabled", False):
+        from builder.ksp import setup_ksp_toolchain
+        prefix, ksp_plugin_jar = setup_ksp_toolchain(config)
+        if not prefix:
+            raise RuntimeError("ksp: failed to resolve KSP toolchain — check network")
+
+        ksp_gen = ensure_dir(os.path.join(config.build_dir, "ksp", "gen"))
+        ksp_classes = ensure_dir(os.path.join(config.build_dir, "ksp", "classes"))
+        ksp_caches = ensure_dir(os.path.join(config.build_dir, "ksp", "caches"))
+        ksp_base = ensure_dir(os.path.join(config.build_dir, "ksp"))
+
+        log.info("ksp: running symbol processor (phase 1/2)")
+        run(prefix + [
+            *kt_files,
+            "-classpath", classpath,
+            "-d", os.path.join(config.build_dir, "ksp", "stub_out"),
+            "-jvm-target", jvm_target,
+            "-no-reflect",
+            "-no-stdlib",
+            f"-Xplugin={ksp_plugin_jar}",
+            "-P", f"plugin:com.google.devtools.ksp.symbol-processing:projectBaseDir={ksp_base}",
+            "-P", f"plugin:com.google.devtools.ksp.symbol-processing:kspOutputDir={ksp_gen}",
+            "-P", f"plugin:com.google.devtools.ksp.symbol-processing:classOutputDir={ksp_classes}",
+            "-P", f"plugin:com.google.devtools.ksp.symbol-processing:javaOutputDir={ksp_gen}",
+            "-P", f"plugin:com.google.devtools.ksp.symbol-processing:kotlinOutputDir={ksp_gen}",
+            "-P", f"plugin:com.google.devtools.ksp.symbol-processing:resourceOutputDir={ksp_gen}",
+            "-P", f"plugin:com.google.devtools.ksp.symbol-processing:cachesDir={ksp_caches}",
+            "-P", "plugin:com.google.devtools.ksp.symbol-processing:incremental=false",
+            "-P", "plugin:com.google.devtools.ksp.symbol-processing:allWarningsAsErrors=false",
+            "-P", f"plugin:com.google.devtools.ksp.symbol-processing:apclasspath={','.join(config.annotation_processors) if config.annotation_processors else ksp_plugin_jar}",
+        ])
+
+        from builder.utils import find_files as _ff2
+        generated_kt = _ff2(ksp_gen, ".kt")
+        all_kt_files = kt_files + generated_kt
+        log.info("ksp: compiling %d file(s) including %d generated (phase 2/2)", len(all_kt_files), len(generated_kt))
+
     if getattr(config, "kapt_enabled", False):
         from builder.kapt import resolve_kapt_toolchain
         prefix, plugin_jar = resolve_kapt_toolchain(config)
