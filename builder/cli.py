@@ -327,12 +327,14 @@ def _setup(args):
     )
 
     log.info("Downloading android.jar (API %d)...", args.api)
+    tmp_path = jar_path + ".tmp"
     try:
         r = requests.get(url, timeout=120, stream=True)
         r.raise_for_status()
-        with open(jar_path, "wb") as f:
+        with open(tmp_path, "wb") as f:
             for chunk in r.iter_content(8192):
                 f.write(chunk)
+        os.rename(tmp_path, jar_path)
     except Exception as e:
         log.error("Download failed: %s", e)
         log.info("Alternative: manually place android.jar at %s", jar_path)
