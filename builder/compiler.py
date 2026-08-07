@@ -56,10 +56,14 @@ def compile_java(config):
     classpath = os.pathsep.join([android_jar] + lib_jars)
     java_ver = _effective_java_version(config)
 
+    processors = getattr(config, "annotation_processors", None)
+    if processors and shutil.which("javac") is None:
+        raise RuntimeError("annotation processors require javac (ecj does not support -processorpath) — install: pkg install openjdk-17")
+
     if _can_use_ecj() and shutil.which("javac") is None:
         _compile_java_ecj(all_java, classpath, java_ver, config.java_classes_dir)
     else:
-        _compile_java_javac(config, all_java, classpath, java_ver)
+        _compile_java_javac(config, all_java, classpath, java_ver, processors)
 
 
 def _compile_java_ecj(java_files, classpath, java_ver, out_dir):
@@ -78,17 +82,39 @@ def _compile_java_ecj(java_files, classpath, java_ver, out_dir):
     ])
 
 
-def _compile_java_javac(config, java_files, classpath, java_ver):
-    run([
+def _compile_java_javac(config, java_files, classpath, java_ver, processors=None):
+    args = [
         config.bin_javac,
         "-source", str(java_ver),
         "-target", str(java_ver),
         "-classpath", classpath,
         "-nowarn",
-        "-proc:none",
-        "-d", config.java_classes_dir,
-        *java_files,
-    ])
+    ]
+    if processors:
+        resolved = _resolve_processor_jars(config, processors)
+        args += ["-processorpath", os.pathsep.join(resolved)]
+        gen_dir = ensure_dir(os.path.join(config.build_dir, "gen-apt"))
+        args += ["-s", gen_dir]
+    else:
+        args += ["-proc:none"]
+    args += ["-d", config.java_classes_dir, *java_files]
+    run(args)
+
+
+def _resolve_processor_jars(config, processors):
+    """processors: list of paths (relative to project) to annotation
+    processor jars, e.g. downloaded via `termux-builder deps` into .libs/
+    or placed manually. Real javac -processorpath wiring — this is the
+    actual APT mechanism Dagger/Room's javac processors use (KSP/Kotlin
+    processors are a separate, Kotlin-compiler-plugin based mechanism,
+    see compile_kotlin's kapt handling)."""
+    resolved = []
+    for p in processors:
+        full = os.path.join(config.project_dir, p) if not os.path.isabs(p) else p
+        if not os.path.isfile(full):
+            raise RuntimeError(f"annotation-processors: jar not found: {full}")
+        resolved.append(full)
+    return resolved
 
 
 def compile_kotlin(config):
