@@ -11,7 +11,11 @@ def _resolve_android_jar(config):
     if os.path.isfile(config.android_jar):
         return config.android_jar
     if os.path.isfile(_SYSTEM_ANDROID_JAR):
-        log.info("Using system android.jar: %s", _SYSTEM_ANDROID_JAR)
+        log.warning(
+            "Using system android.jar — aapt2 link will fail with themes. "
+            "Run: termux-builder setup"
+        )
+        log.info("System android.jar: %s", _SYSTEM_ANDROID_JAR)
         return _SYSTEM_ANDROID_JAR
     raise FileNotFoundError(
         "android.jar not found. Run: termux-builder setup"
