@@ -6,12 +6,13 @@ from builder.utils import color
 def check():
     issues = 0
     print()
-    print(color("termux-builder doctor v1.0.0", "bold"))
-    print("=" * 35)
+    print(color("termux-builder doctor v2.0.0", "bold"))
+    print("=" * 40)
     print()
 
     tools = {
         "javac": "openjdk-17",
+        "java": "openjdk-17",
         "kotlinc": "kotlin",
         "aapt2": "aapt2",
         "d8": "dx",
@@ -19,7 +20,7 @@ def check():
         "keytool": "openjdk-17",
     }
 
-    print("Build tools:")
+    print("Build tools (required):")
     for tool, pkg in tools.items():
         path = shutil.which(tool)
         if path:
@@ -30,13 +31,19 @@ def check():
     print()
 
     print("Optional tools:")
-    optional = {"adb": "termux-adb", "git": "git", "curl": "curl"}
-    for tool, pkg in optional.items():
+    optional = {
+        "adb": "termux-adb",
+        "aidl": "aapt2",
+        "bundletool": "pip install bundletool",
+        "git": "git",
+        "curl": "curl",
+    }
+    for tool, install_cmd in optional.items():
         path = shutil.which(tool)
         if path:
             print(f"  {color('OK', 'green')}  {tool}: {path}")
         else:
-            print(f"  {color('--', 'yellow')}  {tool} not found — pkg install {pkg}")
+            print(f"  {color('--', 'yellow')}  {tool} not found — {install_cmd}")
     print()
 
     print("Android SDK:")
@@ -72,16 +79,16 @@ def check():
     print()
 
     print("Python packages:")
-    for pkg in ("yaml", "requests"):
+    for pkg, pip_name in [("yaml", "pyyaml"), ("requests", "requests")]:
         try:
             __import__(pkg)
             print(f"  {color('OK', 'green')}  {pkg}")
         except ImportError:
-            print(f"  {color('XX', 'red')}  {pkg} — pip install {'pyyaml' if pkg == 'yaml' else pkg}")
+            print(f"  {color('XX', 'red')}  {pkg} — pip install {pip_name}")
             issues += 1
     print()
 
-    print("=" * 35)
+    print("=" * 40)
     if issues == 0:
         print(color("All checks passed!", "green"))
     else:
