@@ -39,11 +39,10 @@ def _compile_aapt2(config):
     log.info("Compiling resources (aapt2)")
     ensure_dir(config.compiled_res_dir)
 
-    run([
-        config.bin_aapt2, "compile",
-        "--dir", config.res_dir,
-        "-o", os.path.join(config.compiled_res_dir, "res.zip"),
-    ])
+    res_dirs = config.find_res_dirs() if hasattr(config, "find_res_dirs") else [config.res_dir]
+    for i, res_dir in enumerate(res_dirs):
+        out = os.path.join(config.compiled_res_dir, "res.zip" if i == 0 else f"res-flavor{i}.zip")
+        run([config.bin_aapt2, "compile", "--dir", res_dir, "-o", out])
 
     for jar in config.find_lib_jars():
         lib_dir = os.path.dirname(jar)
@@ -64,16 +63,23 @@ def _compile_aapt1(config):
     ensure_dir(config.compiled_res_dir)
 
 
-def link_resources(config):
+_DENSITY_BUCKETS = {
+    "ldpi": "ldpi", "mdpi": "mdpi", "hdpi": "hdpi",
+    "xhdpi": "xhdpi", "xxhdpi": "xxhdpi", "xxxhdpi": "xxxhdpi",
+}
+
+
+def link_resources(config, proto_format=False):
     android_jar = _resolve_android_jar(config)
 
     if _has_aapt2(config):
-        _link_aapt2(config, android_jar)
+        return _link_aapt2(config, android_jar, proto_format=proto_format)
     else:
         _link_aapt1(config, android_jar)
+        return None
 
 
-def _link_aapt2(config, android_jar):
+def _link_aapt2(config, android_jar, proto_format=False):
     log.info("Linking resources (aapt2)")
     # clean gen_dir so stale R.java from old package names is removed
     import shutil
@@ -94,6 +100,9 @@ def _link_aapt2(config, android_jar):
         "-I", android_jar,
     ]
 
+    if proto_format:
+        args.append("--proto-format")
+
     if os.path.isdir(config.assets_dir):
         args += ["-A", config.assets_dir]
 
@@ -111,7 +120,17 @@ def _link_aapt2(config, android_jar):
         "--manifest", config.manifest_path,
         "-o", output_res,
     ]
+
+    split_paths = []
+    if getattr(config, "density_splits", False) and not proto_format:
+        split_dir = ensure_dir(os.path.join(config.bin_dir, "splits"))
+        for density in _DENSITY_BUCKETS:
+            split_path = os.path.join(split_dir, f"split-{density}.apk")
+            args += ["--split", f"{split_path}:density={_DENSITY_BUCKETS[density]}"]
+            split_paths.append((density, split_path))
+
     run(args)
+    return split_paths
 
 
 def _link_aapt1(config, android_jar):
