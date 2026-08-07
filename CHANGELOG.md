@@ -1,3 +1,22 @@
+## [3.5.0] - 2026-08-07
+
+Resposta a pedido de paridade com Android Studio. A maior parte da lista pedida
+(profiler, emulador, layout inspector, autocomplete, Play Console, Firebase,
+Crashlytics) e IDE feature ou servico externo, fora de escopo de um CLI de
+build. Implementado o que e build-tool real e viavel sem Gradle/AGP.
+
+### Added
+- `lint.py`: unused resources (strings/drawables/layouts/mipmaps/styles nunca referenciados) e deprecated API detection (AsyncTask, org.apache.http, android.app.Fragment, Camera legado, WebViewFragment)
+- `config.py` + `packager.py` + `signer.py` + `cli.py`: ABI splits reais — `abi-splits: true` no project.yml gera 1 APK assinado por ABI presente em `src/jniLibs/`, cada um so com seu proprio `.so` (app menor por device). Sem `abi-splits` ou sem `.so`, comportamento antigo (APK universal) inalterado.
+
+### Confirmed (ja funcionava, so nao documentado)
+- MultiDex automatico: `d8` recebe todas as classes numa invocacao so, gera `classes2.dex`/`classes3.dex` sem flag extra quando >64k methods; `packager.py` ja empacota todos os dex files.
+
+### Declined (fora de escopo deliberadamente)
+- IDE features (autocomplete, refactor, profiler, emulador, layout/network/database inspector, live edit, hot swap) — exigem IDE grafica, nao cabe em CLI
+- Servicos externos (Play Console, Firebase, Crashlytics, Play Integrity, Play App Signing) — nao sao build tool, sao contas/API de terceiros
+- Build flavors/variants completos, KSP/KAPT orchestration, Room codegen, desugaring com jar externo, AAB real — escopo grande demais pra uma rodada, risco de regressao alto sem testes extensos; candidatos a proxima rodada isolada
+
 ## [3.4.6] - 2026-08-07
 
 ### Fixed (hardening, auditoria qwen — 7a rodada, sem CRITICAL/HIGH pendente)
