@@ -28,6 +28,7 @@ def main():
     build_p.add_argument("project", help="Project directory")
     build_p.add_argument("--clean", action="store_true", help="Clean build")
     build_p.add_argument("--install", action="store_true", help="Install after build")
+    build_p.add_argument("--flavor", help="Build flavor (declared under 'flavors:' in project.yml)")
     build_p.add_argument("--device", help="Target device serial for install")
 
     init_p = sub.add_parser("init", help="Create new project")
@@ -110,7 +111,7 @@ def _build(args):
     log.info(color("termux-builder v%s", "bold"), __version__)
     log.info("")
 
-    config = Config(args.project)
+    config = Config(args.project, flavor=getattr(args, "flavor", None))
 
     if args.clean:
         _do_clean(config)
