@@ -1,6 +1,7 @@
 import argparse
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -166,6 +167,10 @@ def _lint(args):
 
 def _init(args):
     from builder.signer import generate_debug_keystore
+
+    if not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*", args.package):
+        log.error("Invalid package name: %s (must be Java-style, e.g. com.example.app)", args.package)
+        sys.exit(1)
 
     project_dir = os.path.abspath(args.name)
     if os.path.exists(project_dir):
