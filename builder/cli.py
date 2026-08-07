@@ -128,14 +128,16 @@ def _build(args):
     cache = BuildCache(config.cache_dir)
     java_changed = cache.get_modified_files(config.sources_dir, ".java")
     kt_changed = cache.get_modified_files(config.sources_dir, ".kt")
+    gen_changed = cache.get_modified_files(config.gen_dir, ".java")
     classes_exist = os.path.isdir(config.java_classes_dir)
-    if not args.clean and classes_exist and not java_changed and not kt_changed:
+    if not args.clean and classes_exist and not java_changed and not kt_changed and not gen_changed:
         log.info("No source changes — skipping compilation")
     else:
         compiler.compile_java(config)
         compiler.compile_kotlin(config)
         cache.mark_directory(config.sources_dir, ".java")
         cache.mark_directory(config.sources_dir, ".kt")
+        cache.mark_directory(config.gen_dir, ".java")
         cache.save()
     dexer.dex(config)
     packager.package(config)
