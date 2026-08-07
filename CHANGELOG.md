@@ -1,3 +1,16 @@
+## [3.4.2] - 2026-08-07
+
+### Fixed (auditoria externa — ChatGPT cross-check, confirmada)
+- `install.sh`: `pkg install ... || true` mascarava falha de instalacao de pacotes core (openjdk-17, aapt2, apksigner, dx) — agora `fail` hard se instalacao core falhar
+- `builder/aab.py`: `build_bundle()` gerava AAB invalido (res.zip != resources.pb) sem bloquear — agora `raise NotImplementedError` explicito na entrada da funcao ate proto-format link ser implementado
+- `builder/cli.py`: branch de `BuildCache` em `_build()` era efetivamente morto (gen_dir sempre reescrito por buildconfig/resources antes do check, cache nunca pulava) — revertido pra sempre compilar, remove I/O de cache sem beneficio
+- `builder/deps.py`: `_find_artifact()` usava apenas HEAD para probe de artefato — mirrors que bloqueiam HEAD quebravam resolucao de dependencia — adicionado fallback GET
+- `builder/manifest.py`: escopo de merge (whitelist de tags) nao estava documentado — comentario adicionado explicando limitacao intencional
+- `README.md`: installer descrito como instalando "d8" mas `install.sh` instala `dx` — corrigido pra refletir comportamento real
+
+### Verified
+- 22 modulos `builder/*.py` + `install.sh` passam validacao de sintaxe (`ast.parse` / `bash -n`)
+
 ## [3.4.1] - 2026-08-07
 
 ### Fixed
