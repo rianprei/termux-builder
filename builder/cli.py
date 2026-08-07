@@ -124,8 +124,19 @@ def _build(args):
     if config.view_binding:
         binding.generate(config)
 
-    compiler.compile_java(config)
-    compiler.compile_kotlin(config)
+    from builder.cache import BuildCache
+    cache = BuildCache(config.cache_dir)
+    java_changed = cache.get_modified_files(config.sources_dir, ".java")
+    kt_changed = cache.get_modified_files(config.sources_dir, ".kt")
+    classes_exist = os.path.isdir(config.java_classes_dir)
+    if not args.clean and classes_exist and not java_changed and not kt_changed:
+        log.info("No source changes — skipping compilation")
+    else:
+        compiler.compile_java(config)
+        compiler.compile_kotlin(config)
+        cache.mark_directory(config.sources_dir, ".java")
+        cache.mark_directory(config.sources_dir, ".kt")
+        cache.save()
     dexer.dex(config)
     packager.package(config)
     apk_path = signer.sign(config)
