@@ -1,3 +1,13 @@
+## [3.6.2] - 2026-08-07
+
+### Fixed (review externo confirmou 1 de 3 claims — verificado, corrigido)
+- `aab.py`: AAB nunca era assinado — corrigido, `jarsigner` real aplicado apos build-bundle. Testado: `jarsigner -verify` confirma "jar verified."
+
+### Claims do review externo verificadas
+- "--split so existe em aapt2 optimize, nao em link" — FALSO, confirmado `aapt2 link --help` mostra --split real, ja usado e testado (density splits v3.6.0 funcionam via link, nao optimize)
+- "AAB deve assinar com jarsigner, nao apksigner" — CORRETO, gap real, corrigido acima
+- "KAPT incompatibilidade e mais nuance (K2 e alpha/experimental) que impossibilidade absoluta" — linguagem no CHANGELOG v3.6.0 suavizada: erro reproduzido e real (AbstractMethodError), causa raiz e K2 ainda instavel pra kapt3, nao "impossivel pra sempre"
+
 ## [3.6.1] - 2026-08-07
 
 ### Added
