@@ -16,7 +16,16 @@ def package(config, abi=None):
     shutil.copy2(base_apk, unsigned)
 
     with zipfile.ZipFile(unsigned, "a", zipfile.ZIP_DEFLATED) as apk:
-        dex_files = sorted(find_files(config.dex_dir, ".dex"))
+        # top-level dex only (app's own compiled classes) — subdirs like
+        # desugar_lib/ hold the desugar runtime backport dex, which needs a
+        # unique classesN.dex name via the dedup loop below, not the raw
+        # basename (real bug found in testing: both named "classes.dex",
+        # zip collision, apksigner rejected the APK with "Multiple ZIP
+        # entries with the same name")
+        dex_files = sorted(
+            f for f in find_files(config.dex_dir, ".dex")
+            if os.path.dirname(f) == config.dex_dir
+        )
         if not dex_files:
             raise RuntimeError("No DEX files found")
 
@@ -26,8 +35,13 @@ def package(config, abi=None):
         # collect all dex names already added to avoid conflicts
         used_names = {os.path.basename(d) for d in dex_files}
         dex_index = len(dex_files) + 1
-        for jar in config.find_lib_jars():
-            lib_dir = os.path.dirname(jar)
+
+        extra_dex_dirs = [os.path.dirname(j) for j in config.find_lib_jars()]
+        desugar_lib_dir = os.path.join(config.dex_dir, "desugar_lib")
+        if os.path.isdir(desugar_lib_dir):
+            extra_dex_dirs.append(desugar_lib_dir)
+
+        for lib_dir in extra_dex_dirs:
             lib_dexes = find_files(lib_dir, ".dex")
             for ld in lib_dexes:
                 name = f"classes{dex_index}.dex"
