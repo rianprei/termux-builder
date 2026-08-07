@@ -14,7 +14,7 @@ fail()  { echo -e "${RED}[x]${NC} $1" >&2; exit 1; }
 step()  { echo -e "${BLUE}[>]${NC} $1"; }
 
 echo
-echo -e "${BOLD}termux-builder installer v1.0.0${NC}"
+echo -e "${BOLD}termux-builder installer v3.0.0${NC}"
 echo
 
 [ -n "$PREFIX" ] || fail "Not running in Termux"
@@ -29,7 +29,9 @@ step "Updating package index..."
 pkg update -y -qq 2>/dev/null
 
 step "Installing build tools..."
-pkg install -y openjdk-17 aapt2 apksigner dx python git -qq 2>/dev/null || true
+# d8 = modern dexer (replaces dx), aidl = AIDL compiler, ecj = Java compiler without JDK
+pkg install -y openjdk-17 aapt2 apksigner d8 aidl ecj python git -qq 2>/dev/null || \
+  pkg install -y openjdk-17 aapt2 apksigner dx python git -qq 2>/dev/null || true
 
 step "Installing Python dependencies..."
 pip install --quiet pyyaml requests 2>/dev/null || pip install pyyaml requests
@@ -96,8 +98,18 @@ if command -v javac >/dev/null 2>&1; then
   info "javac: $(javac -version 2>&1 | head -1)"
 fi
 
+if command -v d8 >/dev/null 2>&1; then
+  info "d8 (dexer): OK"
+elif command -v dx >/dev/null 2>&1; then
+  info "dx (dexer fallback): OK"
+fi
+
 if command -v aapt2 >/dev/null 2>&1; then
   info "aapt2: OK"
+fi
+
+if command -v aidl >/dev/null 2>&1; then
+  info "aidl: OK"
 fi
 
 if [ -f "$JAR_PATH" ]; then
