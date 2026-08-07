@@ -37,12 +37,16 @@ def _generate_binding_class(config, layout_path):
     out_dir = ensure_dir(os.path.join(config.binding_dir, pkg_path, "databinding"))
     out_file = os.path.join(out_dir, f"{class_name}.java")
 
+    pkg = config.package_name
+    r_class = f"{pkg}.R"
+
     lines = [
-        f"package {config.package_name}.databinding;",
+        f"package {pkg}.databinding;",
         "",
         "import android.view.LayoutInflater;",
         "import android.view.View;",
         "import android.view.ViewGroup;",
+        f"import {r_class};",
         "",
         f"public final class {class_name} {{",
         "    private final View rootView;",
@@ -61,9 +65,7 @@ def _generate_binding_class(config, layout_path):
     for view_id, view_type in views:
         field_name = _to_camel_case(view_id)
         lines.append(
-            f'        this.{field_name} = ({view_type}) rootView.findViewById('
-            f'rootView.getResources().getIdentifier("{view_id}", "id", '
-            f'rootView.getContext().getPackageName()));'
+            f"        this.{field_name} = ({view_type}) rootView.findViewById(R.id.{view_id});"
         )
 
     lines += [
@@ -71,16 +73,14 @@ def _generate_binding_class(config, layout_path):
         "",
         "    public View getRoot() { return rootView; }",
         "",
-        "    public static %s inflate(LayoutInflater inflater) {" % class_name,
-        '        View root = inflater.inflate(root.getResources().getIdentifier('
-        '"%s", "layout", root.getContext().getPackageName()), null);' % filename,
-        "        return new %s(root);" % class_name,
+        f"    public static {class_name} inflate(LayoutInflater inflater) {{",
+        f"        View root = inflater.inflate(R.layout.{filename}, null);",
+        f"        return new {class_name}(root);",
         "    }",
         "",
-        "    public static %s inflate(LayoutInflater inflater, ViewGroup parent, boolean attach) {" % class_name,
-        '        View root = inflater.inflate(root.getResources().getIdentifier('
-        '"%s", "layout", root.getContext().getPackageName()), parent, attach);' % filename,
-        "        return new %s(root);" % class_name,
+        f"    public static {class_name} inflate(LayoutInflater inflater, ViewGroup parent, boolean attach) {{",
+        f"        View root = inflater.inflate(R.layout.{filename}, parent, attach);",
+        f"        return new {class_name}(root);",
         "    }",
         "}",
     ]
