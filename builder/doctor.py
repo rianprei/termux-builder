@@ -20,8 +20,18 @@ def check():
         "keytool": "openjdk-17",
     }
 
+    dexer_path = shutil.which("d8") or shutil.which("dx")
+
     print("Build tools (required):")
     for tool, pkg in tools.items():
+        if tool == "d8":
+            if dexer_path:
+                label = "d8" if dexer_path.endswith("d8") else "dx (d8 fallback)"
+                print(f"  {color('OK', 'green')}  dexer ({label}): {dexer_path}")
+            else:
+                print(f"  {color('XX', 'red')}  dexer not found — pkg install dx")
+                issues += 1
+            continue
         path = shutil.which(tool)
         if path:
             print(f"  {color('OK', 'green')}  {tool}: {path}")
