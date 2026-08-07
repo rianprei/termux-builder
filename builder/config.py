@@ -50,6 +50,7 @@ class Config:
         self.application_id_suffix = flavor_cfg.get("application-id-suffix", "")
         self.annotation_processors = raw.get("annotation-processors", [])
         self.kapt_enabled = android.get("kapt", False)
+        self.ksp_enabled = android.get("ksp", False)
 
         self.manifest_path = os.path.join(
             self.project_dir, android.get("manifest-path", "AndroidManifest.xml")
