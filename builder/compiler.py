@@ -2,14 +2,40 @@ import os
 import shutil
 from builder.utils import run, ensure_dir, log
 
+# ecj.jar paths (Termux native — no JDK needed)
+_ECJ_JAR = "/data/data/com.termux/files/usr/share/dex/ecj.jar"
+_SYSTEM_ANDROID_JAR = "/data/data/com.termux/files/usr/share/java/android.jar"
+
+
+def _dexer_is_dx(config):
+    return os.path.basename(config.bin_d8) != "d8" or shutil.which("d8") is None
+
 
 def _effective_java_version(config):
-    # dx (legacy) only supports up to Java 8 (class version 52)
-    if os.path.basename(config.bin_d8) != "d8" or shutil.which("d8") is None:
-        if config.java_version > 8:
-            log.info("dx detected — downgrading compile target to Java 8 for compatibility")
-            return 8
+    # dx only supports up to class version 52 (Java 8)
+    if _dexer_is_dx(config) and config.java_version > 8:
+        return 8
     return config.java_version
+
+
+def _can_use_ecj():
+    """ecj + dalvikvm: 100% native Termux, no JDK required."""
+    return (
+        shutil.which("dalvikvm") is not None
+        and os.path.isfile(_ECJ_JAR)
+    )
+
+
+def _resolve_android_jar(config):
+    """Use project SDK jar, fallback to system android.jar."""
+    if os.path.isfile(config.android_jar):
+        return config.android_jar
+    if os.path.isfile(_SYSTEM_ANDROID_JAR):
+        log.info("Using system android.jar: %s", _SYSTEM_ANDROID_JAR)
+        return _SYSTEM_ANDROID_JAR
+    raise FileNotFoundError(
+        "android.jar not found. Run: termux-builder setup"
+    )
 
 
 def compile_java(config):
@@ -25,10 +51,34 @@ def compile_java(config):
     log.info("Compiling %d Java files", len(all_java))
     ensure_dir(config.java_classes_dir)
 
+    android_jar = _resolve_android_jar(config)
     lib_jars = config.find_lib_jars()
-    classpath = os.pathsep.join([config.android_jar] + lib_jars)
+    classpath = os.pathsep.join([android_jar] + lib_jars)
     java_ver = _effective_java_version(config)
 
+    if _can_use_ecj() and shutil.which("javac") is None:
+        _compile_java_ecj(all_java, classpath, java_ver, config.java_classes_dir)
+    else:
+        _compile_java_javac(config, all_java, classpath, java_ver)
+
+
+def _compile_java_ecj(java_files, classpath, java_ver, out_dir):
+    """Compile via ecj (Eclipse JDT) + dalvikvm — 100% native, no JDK."""
+    log.info("Using ecj compiler (native Termux, no JDK)")
+    run([
+        "dalvikvm", "-Xmx512m",
+        "-cp", _ECJ_JAR,
+        "org.eclipse.jdt.internal.compiler.batch.Main",
+        "-proc:none",
+        "-source", str(java_ver),
+        "-target", str(java_ver),
+        "-cp", classpath,
+        "-d", out_dir,
+        *java_files,
+    ])
+
+
+def _compile_java_javac(config, java_files, classpath, java_ver):
     run([
         config.bin_javac,
         "-source", str(java_ver),
@@ -37,7 +87,7 @@ def compile_java(config):
         "-nowarn",
         "-proc:none",
         "-d", config.java_classes_dir,
-        *all_java,
+        *java_files,
     ])
 
 
@@ -49,15 +99,10 @@ def compile_kotlin(config):
     log.info("Compiling %d Kotlin files", len(kt_files))
     ensure_dir(config.kotlin_classes_dir)
 
+    android_jar = _resolve_android_jar(config)
     lib_jars = config.find_lib_jars()
-    classpath = os.pathsep.join([
-        config.android_jar,
-        config.java_classes_dir,
-        *lib_jars,
-    ])
-
+    classpath = os.pathsep.join([android_jar, config.java_classes_dir] + lib_jars)
     java_ver = _effective_java_version(config)
-    # kotlinc jvm-target: dx only supports 1.8
     jvm_target = "1.8" if java_ver == 8 else str(java_ver)
 
     args = [
@@ -80,12 +125,11 @@ def compile_kotlin(config):
 
 
 def _find_compose_compiler(config):
-    candidates = [
+    for c in (
         os.path.join(config.libs_dir, "compose-compiler.jar"),
         os.path.join(config.cache_dir, "compose-compiler.jar"),
-    ]
-    for c in candidates:
+    ):
         if os.path.isfile(c):
             return c
-    log.warning("Compose compiler plugin not found — Kotlin compiled without Compose support")
+    log.warning("Compose compiler plugin not found — compiled without Compose support")
     return None
