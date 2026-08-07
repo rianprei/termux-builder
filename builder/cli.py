@@ -40,6 +40,12 @@ def main():
     setup_p = sub.add_parser("setup", help="Install SDK and tools")
     setup_p.add_argument("--api", type=int, default=34, help="Android API level")
 
+    test_p = sub.add_parser("test", help="Run JUnit tests")
+    test_p.add_argument("project", help="Project directory")
+
+    lint_p = sub.add_parser("lint", help="Run lint checks")
+    lint_p.add_argument("project", help="Project directory")
+
     args = parser.parse_args()
 
     level = logging.DEBUG if args.verbose else logging.INFO
@@ -61,13 +67,17 @@ def main():
         _doctor()
     elif args.command == "setup":
         _setup(args)
+    elif args.command == "test":
+        _test(args)
+    elif args.command == "lint":
+        _lint(args)
     else:
         parser.print_help()
 
 
 def _build(args):
     from builder.config import Config
-    from builder import deps, buildconfig, resources, compiler, dexer, packager, signer, binding, manifest
+    from builder import deps, buildconfig, resources, compiler, dexer, packager, signer, binding, manifest, aidl
 
     start = time.time()
     log.info(color("termux-builder v%s", "bold"), __version__)
@@ -87,6 +97,8 @@ def _build(args):
     resources.compile_resources(config)
     resources.link_resources(config)
 
+    aidl.compile(config)
+
     if config.view_binding:
         binding.generate(config)
 
@@ -104,6 +116,25 @@ def _build(args):
     if args.install:
         from builder import installer
         installer.install(apk_path, args.device)
+
+
+def _test(args):
+    from builder.config import Config
+    from builder import testing
+    config = Config(args.project)
+    testing.run_tests(config)
+
+
+def _lint(args):
+    from builder.config import Config
+    from builder import lint
+    config = Config(args.project)
+    issues = lint.check(config)
+    if issues:
+        log.warning(color("%d lint issue(s) found", "yellow"), issues)
+        sys.exit(1)
+    else:
+        log.info(color("Lint passed", "green"))
 
 
 def _init(args):
@@ -162,7 +193,8 @@ android:
 
     <application
         android:label="{app_name}"
-        android:theme="@style/AppTheme">
+        android:theme="@style/AppTheme"
+        android:allowBackup="false">
 
         <activity
             android:name=".MainActivity"
@@ -263,7 +295,7 @@ def _setup(args):
     os.makedirs(platform_dir, exist_ok=True)
 
     url = (
-        f"https://github.com/nicbarker/android-jar/raw/main/"
+        f"https://github.com/Reginer/aosp-android-jar/raw/main/"
         f"android-{args.api}/android.jar"
     )
 
