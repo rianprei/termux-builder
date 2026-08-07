@@ -108,6 +108,7 @@ def _find_test_classes(classes_dir):
             continue
         rel = os.path.relpath(cls, classes_dir)
         name = rel.replace(os.sep, ".").replace(".class", "")
-        if "Test" in name or "test" in name:
+        base = name.rsplit(".", 1)[-1]
+        if base.endswith("Test") or base.startswith("Test"):
             classes.append(name)
     return classes
