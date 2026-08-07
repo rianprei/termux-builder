@@ -12,7 +12,7 @@ from builder.utils import color, log
 def main():
     parser = argparse.ArgumentParser(
         prog="termux-builder",
-        description="Android Studio no Termux — build APK sem root, sem PC",
+        description="Android Studio no Termux — build APK/AAB sem root, sem PC",
     )
     parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument("--version", action="version", version=f"termux-builder {__version__}")
@@ -24,6 +24,8 @@ def main():
     build_p.add_argument("--clean", action="store_true", help="Clean build")
     build_p.add_argument("--install", action="store_true", help="Install after build")
     build_p.add_argument("--device", help="Target device serial for install")
+    build_p.add_argument("--aab", action="store_true", help="Build AAB instead of APK")
+    build_p.add_argument("--no-cache", action="store_true", help="Disable incremental cache")
 
     init_p = sub.add_parser("init", help="Create new project")
     init_p.add_argument("name", help="Project name")
@@ -34,6 +36,12 @@ def main():
 
     deps_p = sub.add_parser("deps", help="Download dependencies")
     deps_p.add_argument("project", help="Project directory")
+
+    test_p = sub.add_parser("test", help="Run unit tests")
+    test_p.add_argument("project", help="Project directory")
+
+    lint_p = sub.add_parser("lint", help="Run lint checks")
+    lint_p.add_argument("project", help="Project directory")
 
     sub.add_parser("doctor", help="Check build environment")
 
@@ -49,25 +57,28 @@ def main():
         stream=sys.stdout,
     )
 
-    if args.command == "build":
-        _build(args)
-    elif args.command == "init":
-        _init(args)
-    elif args.command == "clean":
-        _clean(args)
-    elif args.command == "deps":
-        _deps(args)
-    elif args.command == "doctor":
-        _doctor()
-    elif args.command == "setup":
-        _setup(args)
+    commands = {
+        "build": _build,
+        "init": _init,
+        "clean": _clean,
+        "deps": _deps,
+        "test": _test,
+        "lint": _lint,
+        "doctor": _doctor,
+        "setup": _setup,
+    }
+
+    handler = commands.get(args.command)
+    if handler:
+        handler(args)
     else:
         parser.print_help()
 
 
 def _build(args):
     from builder.config import Config
-    from builder import deps, buildconfig, resources, compiler, dexer, packager, signer, binding, manifest
+    from builder.cache import BuildCache
+    from builder import deps, buildconfig, resources, compiler, dexer, packager, signer, binding, manifest, aidl
 
     start = time.time()
     log.info(color("termux-builder v%s", "bold"), __version__)
@@ -81,9 +92,14 @@ def _build(args):
     os.makedirs(config.build_dir, exist_ok=True)
     os.makedirs(config.bin_dir, exist_ok=True)
 
+    cache = None
+    if not args.no_cache:
+        cache = BuildCache(config.cache_dir)
+
     deps.resolve(config)
     buildconfig.generate(config)
     manifest.merge(config)
+    aidl.compile(config)
     resources.compile_resources(config)
     resources.link_resources(config)
 
@@ -93,17 +109,31 @@ def _build(args):
     compiler.compile_java(config)
     compiler.compile_kotlin(config)
     dexer.dex(config)
-    packager.package(config)
-    apk_path = signer.sign(config)
+
+    if args.aab:
+        from builder import aab
+        output = aab.build_bundle(config)
+        if not output:
+            packager.package(config)
+            output = signer.sign(config)
+    else:
+        packager.package(config)
+        output = signer.sign(config)
+
+    if cache:
+        cache.mark_directory(config.sources_dir, ".java")
+        cache.mark_directory(config.sources_dir, ".kt")
+        cache.mark_directory(config.res_dir, ".xml")
+        cache.save()
 
     elapsed = time.time() - start
     log.info("")
     log.info(color("BUILD SUCCESSFUL in %.1fs", "green"), elapsed)
-    log.info("APK: %s", apk_path)
+    log.info("Output: %s", output)
 
-    if args.install:
+    if args.install and not args.aab:
         from builder import installer
-        installer.install(apk_path, args.device)
+        installer.install(output, args.device)
 
 
 def _init(args):
@@ -120,6 +150,7 @@ def _init(args):
     os.makedirs(os.path.join(project_dir, "src", "res", "values"))
     os.makedirs(os.path.join(project_dir, "src", "res", "drawable"))
     os.makedirs(os.path.join(project_dir, "src", "assets"), exist_ok=True)
+    os.makedirs(os.path.join(project_dir, "src", "test", pkg_path), exist_ok=True)
 
     app_name = args.name.replace("-", " ").replace("_", " ").title()
 
@@ -162,6 +193,7 @@ android:
 
     <application
         android:label="{app_name}"
+        android:allowBackup="true"
         android:theme="@style/AppTheme">
 
         <activity
@@ -213,6 +245,9 @@ public class MainActivity extends Activity {{
 </resources>
 """)
 
+    with open(os.path.join(project_dir, ".gitignore"), "w") as f:
+        f.write(".build/\n.cache/\n.libs/\n*.apk\n*.aab\ndebug.keystore\n")
+
     generate_debug_keystore(os.path.join(project_dir, "debug.keystore"))
 
     log.info(color("Project created: %s", "green"), project_dir)
@@ -230,9 +265,10 @@ def _clean(args):
 
 
 def _do_clean(config):
-    if os.path.isdir(config.build_dir):
-        shutil.rmtree(config.build_dir)
-        log.info("Removed %s", config.build_dir)
+    for d in (config.build_dir, config.cache_dir):
+        if os.path.isdir(d):
+            shutil.rmtree(d)
+            log.info("Removed %s", d)
 
 
 def _deps(args):
@@ -240,6 +276,22 @@ def _deps(args):
     from builder import deps
     config = Config(args.project)
     deps.resolve(config)
+
+
+def _test(args):
+    from builder.config import Config
+    from builder import testing
+    config = Config(args.project)
+    success = testing.run_tests(config)
+    sys.exit(0 if success else 1)
+
+
+def _lint(args):
+    from builder.config import Config
+    from builder import lint
+    config = Config(args.project)
+    issues = lint.check(config)
+    sys.exit(0 if issues == 0 else 1)
 
 
 def _doctor():
