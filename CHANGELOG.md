@@ -1,3 +1,21 @@
+## [3.9.0] - 2026-08-09
+
+Adiciona 6 comandos CLI que cobrem o que da pra cobrir sem virar IDE/GUI (Android Studio tem editor visual, debugger interativo, profiler grafico, emulador com janela — isso nao vira CLI; o resto, sim).
+
+### Added
+- `analyze <apk>`: breakdown de tamanho por dex/resources/assets/native_libs/manifest + `aapt2 dump badging` (package/label/sdk). Testado real: zip sintetico com buckets conhecidos confere exato; rodado tambem contra APK real gerado por `termux-builder build` (breakdown correto, aapt2 badging funcionando).
+- `db pull <pkg> <db>`: `adb exec-out run-as <pkg> cat databases/<db>` + `sqlite3 .schema`/`.tables`. Bug achado antes de publicar: `utils.run()` forca `text=True`, corrompe bytes binarios do SQLite no round-trip decode/encode — corrigido usando `subprocess.run` raw (bytes) direto no modulo, nao via `utils.run`.
+- `logcat [pkg]`: sem pkg = `adb logcat` cru; com pkg = resolve PID via `pidof -s` e filtra `--pid`. Testado real: sem device conectado, comportamento correto do proprio adb ("waiting for device"), nao crasha.
+- `deps-tree <dir>`: le os arquivos `.transitive` que `deps.py` ja salva em cache por lib, monta arvore recursiva com guarda de ciclo. Reusa cache existente, nao duplica logica de resolucao.
+- `applinks <dominio> <pkg> [--fingerprint]`: busca `/.well-known/assetlinks.json`, valida `relation` + `package_name` + fingerprint opcional. Testado real contra `google.com`/`com.google.android.calendar` (statement real bate).
+- `emulator list` / `emulator start <avd> [--window]`: wrap `avdmanager list avd` / `emulator -avd <nome> -no-window -no-audio -gpu swiftshader_indirect` (headless por padrao). Nao testado ponta-a-ponta — sem `avdmanager` instalado no ambiente de teste (SDK emulator nao vem por padrao); erro sai claro e nao mascarado.
+
+### Verified
+- `termux-builder init` + `termux-builder build .` reais: APK assinado gerado em 12.7s, 0 erro.
+- `analyze`/`lint`/`deps-tree` rodados contra o projeto/APK real acima: todos corretos.
+- `db pull`/`logcat`/`emulator list` sem device/AVD: falham limpo com mensagem clara, sem stack trace vazado, sem crash.
+- Instalacao fresh via `curl | bash` no device real: 0 erro, `termux-builder --help` lista os 6 comandos novos.
+
 ## [3.8.0] - 2026-08-07
 
 Fecha 2 gaps que sobraram da auditoria "100%": R8 nunca era real, e KSP nao existia.
