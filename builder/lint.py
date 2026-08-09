@@ -1,24 +1,95 @@
+import html
+import logging
 import os
 import xml.etree.ElementTree as ET
 from builder.utils import log, find_files
 
 
-def check(config):
-    log.info("Running lint checks")
-    issues = 0
+class _Collector(logging.Handler):
+    """Captures 'Lint: ...' warnings emitted by the checks below, so report
+    writers reuse the exact same messages instead of duplicating logic."""
 
-    issues += _check_manifest(config)
-    issues += _check_java_sources(config)
-    issues += _check_resources(config)
-    issues += _check_unused_resources(config)
-    issues += _check_deprecated_apis(config)
+    def __init__(self):
+        super().__init__(level=logging.WARNING)
+        self.messages = []
+
+    def emit(self, record):
+        msg = record.getMessage()
+        if msg.startswith("Lint: "):
+            self.messages.append(msg[len("Lint: "):])
+
+
+def _run_checks(config):
+    collector = _Collector()
+    log.addHandler(collector)
+    try:
+        _check_manifest(config)
+        _check_java_sources(config)
+        _check_resources(config)
+        _check_unused_resources(config)
+        _check_deprecated_apis(config)
+    finally:
+        log.removeHandler(collector)
+    return collector.messages
+
+
+def check(config, report=None, baseline=None):
+    log.info("Running lint checks")
+
+    baseline_set = _load_baseline(baseline) if baseline else set()
+    all_messages = _run_checks(config)
+    new_messages = [m for m in all_messages if m not in baseline_set]
+    issues = len(new_messages)
+
+    if baseline_set:
+        suppressed = len(all_messages) - issues
+        if suppressed:
+            log.info("Lint: %d issue(s) suppressed by baseline", suppressed)
 
     if issues == 0:
         log.info("Lint: no issues found")
     else:
         log.warning("Lint: %d issue(s) found", issues)
 
+    if report:
+        _write_report(report, new_messages)
+
     return issues
+
+
+def write_baseline(config, path):
+    """Snapshot current lint findings so future runs only fail on issues introduced after this point."""
+    messages = _run_checks(config)
+    with open(path, "w") as f:
+        f.write("\n".join(messages))
+    log.info("Lint baseline written: %s (%d issue(s) snapshotted)", path, len(messages))
+    return len(messages)
+
+
+def _load_baseline(path):
+    if not os.path.isfile(path):
+        return set()
+    with open(path) as f:
+        return {l.strip() for l in f if l.strip()}
+
+
+def _write_report(path, messages):
+    if path.endswith(".html"):
+        rows = "\n".join(f"<tr><td>{html.escape(m)}</td></tr>" for m in messages)
+        content = (
+            "<html><head><title>Lint Report</title></head><body>"
+            f"<h1>Lint Report — {len(messages)} issue(s)</h1>"
+            f"<table border=\"1\">{rows}</table></body></html>"
+        )
+    else:
+        lines = ['<?xml version="1.0" encoding="UTF-8"?>', "<issues>"]
+        for msg in messages:
+            lines.append(f'  <issue message="{html.escape(msg)}" severity="Warning" />')
+        lines.append("</issues>")
+        content = "\n".join(lines)
+    with open(path, "w") as f:
+        f.write(content)
+    log.info("Lint report written: %s", path)
 
 
 def _check_manifest(config):

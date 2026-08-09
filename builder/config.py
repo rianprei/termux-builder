@@ -83,6 +83,14 @@ class Config:
         self.keystore_store_pass = str(android.get("keystore-store-pass", "android"))
         self.keystore_key_pass = str(android.get("keystore-key-pass", "android"))
 
+        signing = android.get("signing", {})
+        # v4 needs incremental-fs support (API 30+) to have any effect — off
+        # by default below that so apksigner doesn't warn for nothing
+        self.sign_v1 = signing.get("v1", True)
+        self.sign_v2 = signing.get("v2", True)
+        self.sign_v3 = signing.get("v3", True)
+        self.sign_v4 = signing.get("v4", self.min_sdk >= 30)
+
         self.libs_dir = os.path.join(self.project_dir, raw.get("libs-path", ".libs"))
         self.cache_dir = os.path.join(self.project_dir, raw.get("cache-path", ".cache"))
         self.build_dir = os.path.join(self.project_dir, raw.get("build-path", ".build"))

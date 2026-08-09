@@ -79,6 +79,7 @@ def resolve(config):
         if not os.path.isfile(artifact_path):
             log.info("Downloading: %s", coord)
             _download(artifact_url, artifact_path)
+            _verify_checksum(artifact_url, artifact_path, coord)
 
         if packaging == "aar":
             _extract_aar(artifact_path, lib_out)
@@ -191,6 +192,30 @@ def _download(url, dest):
         for chunk in r.iter_content(8192):
             f.write(chunk)
     os.rename(tmp, dest)
+
+
+def _verify_checksum(artifact_url, artifact_path, coord):
+    """Maven Central/Google publish .sha1 alongside every artifact —
+    verify it so a compromised/corrupted mirror response gets caught
+    before the jar/aar lands in the build classpath."""
+    import hashlib
+    try:
+        r = requests.get(artifact_url + ".sha1", timeout=15)
+        r.raise_for_status()
+    except requests.RequestException:
+        log.warning("No .sha1 available for %s — skipping checksum verification", coord)
+        return
+
+    expected = r.text.strip().split()[0].lower()
+    h = hashlib.sha1()
+    with open(artifact_path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            h.update(chunk)
+    actual = h.hexdigest()
+
+    if actual != expected:
+        os.remove(artifact_path)
+        raise RuntimeError(f"Checksum mismatch for {coord}: expected {expected}, got {actual}")
 
 
 def _extract_aar(aar_path, out_dir):

@@ -1,3 +1,17 @@
+## [3.10.0] - 2026-08-09
+
+5 features de build avancado, sem credencial externa nem rewrite arquitetural.
+
+### Added
+- Signing V1+V2+V3+V4 simultaneo: `project.yml` aceita `android.signing.{v1,v2,v3,v4}` (default v1-v3 on, v4 on se `min-sdk >= 30`). Testado real: `apksigner verify --verbose` confirma v1/v2/v3 true no APK gerado.
+- Lint reports XML/HTML: `lint --report <path>` escreve `.xml` (formato `<issues>`) ou `.html` (tabela) com as mesmas mensagens do check. Testado real: 1 issue capturada e escrita nos dois formatos.
+- Lint baseline: `lint --write-baseline <path>` snapshota issues atuais; `lint --baseline <path>` suprime issues ja conhecidas em runs futuros. Testado real: issue suprimida corretamente na segunda run.
+- Dependency checksum verification: cada artefato baixado do Maven agora valida contra o `.sha1` publicado ao lado (Maven Central nao publica sha256 — sha1 e o real). Mismatch remove o arquivo e aborta o build. Testado real contra download de 5 artefatos (androidx.annotation + transitivos).
+- Test coverage (JaCoCo): `test --coverage [--coverage-report <dir>]` baixa `org.jacoco.agent`/`org.jacoco.cli` 0.8.12 do Maven Central, roda os testes com `-javaagent`, gera relatorio HTML+XML. Testado real: 1 teste JUnit rodado com agent, relatorio de 5 classes gerado.
+
+### Fixed
+- `test --coverage`: jacoco cli falhava com `FileNotFoundError` quando o projeto nao tem fonte Kotlin (`kotlin_classes_dir` inexistente) — agora so passa `--classfiles` pra diretorios que existem.
+
 ## [3.9.0] - 2026-08-09
 
 Adiciona 6 comandos CLI que cobrem o que da pra cobrir sem virar IDE/GUI (Android Studio tem editor visual, debugger interativo, profiler grafico, emulador com janela — isso nao vira CLI; o resto, sim).

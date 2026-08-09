@@ -46,7 +46,11 @@ termux-builder build . --clean
 | `termux-builder clean <dir>` | Remove .build/ |
 | `termux-builder deps <dir>` | Baixa dependencias Maven |
 | `termux-builder test <dir>` | Roda testes JUnit |
+| `termux-builder test <dir> --coverage` | Roda testes com cobertura JaCoCo (HTML+XML) |
 | `termux-builder lint <dir>` | Verifica problemas no codigo |
+| `termux-builder lint <dir> --report r.xml\|.html` | Escreve relatorio de lint |
+| `termux-builder lint <dir> --baseline b.txt` | Suprime issues ja conhecidas |
+| `termux-builder lint <dir> --write-baseline b.txt` | Snapshota issues atuais como baseline |
 | `termux-builder decompile <apk>` | Descompila APK com apktool |
 | `termux-builder recompile <dir>` | Recompila APK descompilado |
 | `termux-builder doctor` | Diagnostico do ambiente |
@@ -94,6 +98,12 @@ android:
   keystore-alias: mykey
   keystore-store-pass: password
   keystore-key-pass: password
+
+  signing:              # todos opcionais, defaults abaixo
+    v1: true
+    v2: true
+    v3: true
+    v4: false           # true automatico se min-sdk >= 30
 ```
 
 ## Estrutura do Projeto

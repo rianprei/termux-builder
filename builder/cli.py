@@ -48,9 +48,14 @@ def main():
 
     test_p = sub.add_parser("test", help="Run JUnit tests")
     test_p.add_argument("project", help="Project directory")
+    test_p.add_argument("--coverage", action="store_true", help="Collect JaCoCo coverage")
+    test_p.add_argument("--coverage-report", help="Coverage report output dir (default .build/coverage)")
 
     lint_p = sub.add_parser("lint", help="Run lint checks")
     lint_p.add_argument("project", help="Project directory")
+    lint_p.add_argument("--report", help="Write report to this path (.xml or .html)")
+    lint_p.add_argument("--baseline", help="Baseline file to suppress known issues")
+    lint_p.add_argument("--write-baseline", metavar="PATH", help="Snapshot current issues to PATH and exit")
 
     dec_p = sub.add_parser("decompile", help="Decompile APK with apktool")
     dec_p.add_argument("apk", help="APK file to decompile")
@@ -251,7 +256,7 @@ def _test(args):
     from builder.config import Config
     from builder import testing
     config = Config(args.project)
-    if not testing.run_tests(config):
+    if not testing.run_tests(config, coverage=args.coverage, coverage_report=args.coverage_report):
         sys.exit(1)
 
 
@@ -259,7 +264,10 @@ def _lint(args):
     from builder.config import Config
     from builder import lint
     config = Config(args.project)
-    issues = lint.check(config)
+    if args.write_baseline:
+        lint.write_baseline(config, args.write_baseline)
+        return
+    issues = lint.check(config, report=args.report, baseline=args.baseline)
     if issues:
         log.warning(color("%d lint issue(s) found", "yellow"), issues)
         sys.exit(1)

@@ -29,6 +29,10 @@ def sign_apk(config, unsigned_path, signed_path):
         "--ks-key-alias", config.keystore_alias,
         "--ks-pass", "env:_TB_KS_PASS",
         "--key-pass", "env:_TB_KEY_PASS",
+        "--v1-signing-enabled", str(config.sign_v1).lower(),
+        "--v2-signing-enabled", str(config.sign_v2).lower(),
+        "--v3-signing-enabled", str(config.sign_v3).lower(),
+        "--v4-signing-enabled", str(config.sign_v4).lower(),
         "--out", signed_path,
         "--in", unsigned_path,
     ], env=env)

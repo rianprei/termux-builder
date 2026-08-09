@@ -1,8 +1,12 @@
 import os
+import requests
 from builder.utils import run, find_files, find_bin, log, ensure_dir
 
+JACOCO_VERSION = "0.8.12"
+JACOCO_BASE = "https://repo1.maven.org/maven2/org/jacoco"
 
-def run_tests(config):
+
+def run_tests(config, coverage=False, coverage_report=None):
     test_dirs = [
         os.path.join(config.project_dir, "src", "test"),
         os.path.join(config.project_dir, "src", "androidTest"),
@@ -80,17 +84,59 @@ def run_tests(config):
         *lib_jars,
     ])
 
-    result = run(
-        [java, "-cp", run_cp, "org.junit.runner.JUnitCore", *test_classes],
-        check=False,
-    )
+    java_args = [java, "-cp", run_cp]
+    exec_file = None
+    if coverage:
+        agent_jar = _find_jacoco(config, "agent", "org.jacoco.agent", "runtime")
+        exec_file = os.path.join(config.build_dir, "jacoco.exec")
+        java_args.append(f"-javaagent:{agent_jar}=destfile={exec_file}")
+    java_args += ["org.junit.runner.JUnitCore", *test_classes]
+
+    result = run(java_args, check=False)
 
     if result.returncode != 0:
         log.error("Tests FAILED")
         return False
 
     log.info("Tests PASSED")
+
+    if coverage:
+        _write_coverage_report(config, exec_file, coverage_report)
+
     return True
+
+
+def _find_jacoco(config, kind, group, classifier):
+    """Download jacoco agent/cli jar from Maven Central, cached in .cache/deps."""
+    artifact = "org.jacoco.agent" if kind == "agent" else "org.jacoco.cli"
+    filename = f"{artifact}-{JACOCO_VERSION}-{classifier}.jar"
+    dest = os.path.join(config.cache_dir, "deps", filename)
+    if os.path.isfile(dest):
+        return dest
+    ensure_dir(os.path.dirname(dest))
+    url = f"{JACOCO_BASE}/{artifact}/{JACOCO_VERSION}/{filename}"
+    log.info("Downloading %s", filename)
+    r = requests.get(url, timeout=60)
+    r.raise_for_status()
+    with open(dest, "wb") as f:
+        f.write(r.content)
+    return dest
+
+
+def _write_coverage_report(config, exec_file, report_dir):
+    java = find_bin("java")
+    cli_jar = _find_jacoco(config, "cli", "org.jacoco.cli", "nodeps")
+    report_dir = report_dir or os.path.join(config.build_dir, "coverage")
+    ensure_dir(report_dir)
+    run([
+        java, "-jar", cli_jar, "report", exec_file,
+        "--classfiles", config.java_classes_dir,
+        "--classfiles", config.kotlin_classes_dir,
+        "--sourcefiles", config.sources_dir,
+        "--html", report_dir,
+        "--xml", os.path.join(report_dir, "coverage.xml"),
+    ], check=False)
+    log.info("Coverage report: %s", report_dir)
 
 
 def _find_junit(config):
