@@ -61,6 +61,36 @@ def main():
     rec_p.add_argument("dir", help="Decompiled project directory")
     rec_p.add_argument("-o", "--output", help="Output APK path")
 
+    analyze_p = sub.add_parser("analyze", help="APK size breakdown (dex/res/assets/native libs)")
+    analyze_p.add_argument("apk", help="APK file")
+
+    db_p = sub.add_parser("db", help="Database inspector")
+    db_sub = db_p.add_subparsers(dest="db_command")
+    db_pull_p = db_sub.add_parser("pull", help="Pull an app's SQLite DB and dump schema")
+    db_pull_p.add_argument("package", help="App package name")
+    db_pull_p.add_argument("db_name", help="Database file name")
+    db_pull_p.add_argument("--device", help="Target device serial")
+    db_pull_p.add_argument("-o", "--output", help="Local output path")
+
+    logcat_p = sub.add_parser("logcat", help="Stream logcat, optionally filtered to a package")
+    logcat_p.add_argument("package", nargs="?", help="Package to filter (omit for full logcat)")
+    logcat_p.add_argument("--device", help="Target device serial")
+
+    deps_sub_p = sub.add_parser("deps-tree", help="Print resolved dependency tree")
+    deps_sub_p.add_argument("project", help="Project directory")
+
+    applinks_p = sub.add_parser("applinks", help="Verify Digital Asset Links (App Links)")
+    applinks_p.add_argument("domain", help="Domain hosting assetlinks.json")
+    applinks_p.add_argument("package", help="Expected package name")
+    applinks_p.add_argument("--fingerprint", help="Expected SHA-256 signing fingerprint")
+
+    emu_p = sub.add_parser("emulator", help="Manage AVDs headless")
+    emu_sub = emu_p.add_subparsers(dest="emulator_command")
+    emu_sub.add_parser("list", help="List available AVDs")
+    emu_start_p = emu_sub.add_parser("start", help="Start an AVD")
+    emu_start_p.add_argument("avd_name", help="AVD name")
+    emu_start_p.add_argument("--window", action="store_true", help="Show emulator window (default: headless)")
+
     args = parser.parse_args()
 
     level = logging.DEBUG if args.verbose else logging.INFO
@@ -93,6 +123,23 @@ def main():
         elif args.command == "recompile":
             from builder.decompile import recompile
             recompile(args.dir, args.output)
+        elif args.command == "analyze":
+            from builder.analyze import analyze
+            analyze(args.apk)
+        elif args.command == "db":
+            _db(args)
+        elif args.command == "logcat":
+            from builder.logcat import tail
+            tail(args.package, args.device)
+        elif args.command == "deps-tree":
+            from builder.config import Config
+            from builder import deps
+            deps.tree(Config(args.project))
+        elif args.command == "applinks":
+            from builder.applinks import verify
+            verify(args.domain, args.package, args.fingerprint)
+        elif args.command == "emulator":
+            _emulator(args)
         else:
             parser.print_help()
     except (FileNotFoundError, ValueError, RuntimeError, subprocess.CalledProcessError, yaml.YAMLError, ET.ParseError, requests.RequestException) as e:
@@ -177,6 +224,27 @@ def _build(args):
             installer.install_multiple(install_set, args.device)
         else:
             installer.install(apk_path, args.device)
+
+
+def _db(args):
+    if args.db_command != "pull":
+        log.error("Usage: termux-builder db pull <package> <db_name>")
+        sys.exit(1)
+    from builder.dbtool import pull
+    pull(args.package, args.db_name, args.device, args.output)
+
+
+def _emulator(args):
+    from builder import emulator
+    sdk_dir = os.getenv("ANDROID_SDK") or os.getenv("ANDROID_HOME") or os.getenv("ANDROID_SDK_ROOT") \
+        or os.path.join(os.getenv("HOME", ""), ".termux-builder", "sdk")
+    if args.emulator_command == "list":
+        emulator.list_avds(sdk_dir)
+    elif args.emulator_command == "start":
+        emulator.start(sdk_dir, args.avd_name, headless=not args.window)
+    else:
+        log.error("Usage: termux-builder emulator {list|start <avd_name>}")
+        sys.exit(1)
 
 
 def _test(args):
