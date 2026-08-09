@@ -1,3 +1,8 @@
+## [3.11.0] - 2026-08-09
+
+### Added
+- `recon <apk>`: engenharia reversa estatica de APK, absorvido do repo separado `termux-reverse-apk` (agora descontinuado em favor de integrar no builder que ja tem apktool/analyze). Decompila com `decompile()` existente, parseia manifest (permissoes, componentes exportados, min/target-sdk lendo de `apktool.yml` quando o apktool move pra la), escaneia smali/resources com 11 categorias de padrao (secrets, firebase URL, AWS key, URL/HTTP em texto claro, WebView JS, exec de shell, SQL, crypto fraca, base64, shared prefs) com severity+confidence por achado, lista libs nativas por ABI. `--html` gera relatorio visual alem do JSON. Testado real: `recon HackersKeyboard.apk --html` — package `org.pocketworkstation.pckeyboard`, min-sdk 14, target-sdk 26, 567 findings (0 high/261 medium/306 low), 7 native libs.
+
 ## [3.10.0] - 2026-08-09
 
 5 features de build avancado, sem credencial externa nem rewrite arquitetural.

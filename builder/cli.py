@@ -69,6 +69,11 @@ def main():
     analyze_p = sub.add_parser("analyze", help="APK size breakdown (dex/res/assets/native libs)")
     analyze_p.add_argument("apk", help="APK file")
 
+    recon_p = sub.add_parser("recon", help="APK recon: manifest analysis + pattern scan (secrets/URLs/webview/exec/sql/crypto)")
+    recon_p.add_argument("apk", help="APK file")
+    recon_p.add_argument("--html", action="store_true", help="Also write recon-report.html")
+    recon_p.add_argument("-o", "--output", help="Working directory (default: <apk-name>-recon)")
+
     db_p = sub.add_parser("db", help="Database inspector")
     db_sub = db_p.add_subparsers(dest="db_command")
     db_pull_p = db_sub.add_parser("pull", help="Pull an app's SQLite DB and dump schema")
@@ -131,6 +136,17 @@ def main():
         elif args.command == "analyze":
             from builder.analyze import analyze
             analyze(args.apk)
+        elif args.command == "recon":
+            import os
+            from builder.recon import recon, write_json, write_html
+            work_dir = args.output or os.path.splitext(os.path.basename(args.apk))[0] + "-recon"
+            os.makedirs(work_dir, exist_ok=True)
+            report = recon(args.apk, work_dir)
+            json_path = write_json(report, os.path.join(work_dir, "recon-report.json"))
+            log.info("JSON report: %s", json_path)
+            if args.html:
+                html_path = write_html(report, os.path.join(work_dir, "recon-report.html"))
+                log.info("HTML report: %s", html_path)
         elif args.command == "db":
             _db(args)
         elif args.command == "logcat":

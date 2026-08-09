@@ -56,6 +56,7 @@ termux-builder build . --clean
 | `termux-builder doctor` | Diagnostico do ambiente |
 | `termux-builder setup --api 34` | Instala android.jar |
 | `termux-builder analyze <apk>` | Tamanho por dex/res/assets/native libs (APK analyzer CLI) |
+| `termux-builder recon <apk> --html` | Engenharia reversa: manifest (permissoes, componentes exportados, sdk) + scan de padroes (secrets, URLs, WebView JS, exec, SQL, crypto fraca) + libs nativas, com JSON/HTML |
 | `termux-builder db pull <pkg> <db>` | Puxa SQLite do app via adb + dump de schema (Database Inspector CLI) |
 | `termux-builder logcat [pkg]` | Stream de logcat, filtrado por pacote se informado |
 | `termux-builder deps-tree <dir>` | Arvore de dependencias transitivas resolvidas |
