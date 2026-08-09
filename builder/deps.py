@@ -94,6 +94,40 @@ def resolve(config):
     log.info("Dependencies resolved: %d", len(resolved))
 
 
+def tree(config):
+    """Print the resolved dependency tree from cached transitive-deps files —
+    CLI replacement for Android Studio's Gradle dependency explorer."""
+    libs_dir = config.libs_dir
+    seen_path = set()
+
+    def _print(coord, depth, seen_chain):
+        indent = "  " * depth
+        if coord in seen_chain:
+            log.info("%s%s (cycle)", indent, coord)
+            return
+        log.info("%s%s", indent, coord)
+        parts = coord.split(":")
+        if len(parts) != 3:
+            return
+        _, artifact, version = parts
+        lib_dir = f"{libs_dir}/{artifact}-{version}"
+        transitive_file = f"{lib_dir}/.transitive"
+        try:
+            with open(transitive_file) as f:
+                children = [l.strip() for l in f if l.strip()]
+        except FileNotFoundError:
+            return
+        for child in children:
+            _print(child, depth + 1, seen_chain | {coord})
+
+    if not config.dependencies:
+        log.info("No dependencies declared")
+        return
+
+    for dep in config.dependencies:
+        _print(dep, 0, set())
+
+
 def _find_artifact(group_path, artifact, version, ext):
     filename = f"{artifact}-{version}.{ext}"
     for repo in MAVEN_REPOS:
