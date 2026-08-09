@@ -51,6 +51,12 @@ termux-builder build . --clean
 | `termux-builder recompile <dir>` | Recompila APK descompilado |
 | `termux-builder doctor` | Diagnostico do ambiente |
 | `termux-builder setup --api 34` | Instala android.jar |
+| `termux-builder analyze <apk>` | Tamanho por dex/res/assets/native libs (APK analyzer CLI) |
+| `termux-builder db pull <pkg> <db>` | Puxa SQLite do app via adb + dump de schema (Database Inspector CLI) |
+| `termux-builder logcat [pkg]` | Stream de logcat, filtrado por pacote se informado |
+| `termux-builder deps-tree <dir>` | Arvore de dependencias transitivas resolvidas |
+| `termux-builder applinks <dominio> <pkg>` | Verifica assetlinks.json (App Links Assistant CLI) |
+| `termux-builder emulator list` / `start <avd>` | Lista/inicia AVD headless (sem GUI) |
 
 ## Configuracao (project.yml)
 
