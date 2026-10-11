@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Verifica testes JVM mistos Java/Kotlin no Termux ARM64/Android 16, com JDK nativo 21.0.12 e JARs portáveis Kotlin 1.9.24. Confirma referências nos dois sentidos, dois testes JUnit, bytecode Java 8 e invalidação da dependência removida sob UID/contexto do aplicativo, sem capacidades Linux. Não comprova build Kotlin de APK/AAB ou KAPT/KSP nativos.
+
 - Corrige testes mistos Java/Kotlin: Kotlin resolve símbolos nas fontes Java antes de javac compilar contra as classes Kotlin. Fixture CLI com compiladores reais reproduziu a falha anterior e verifica referências nos dois sentidos, dois testes JUnit e invalidação após remover a dependência Kotlin.
 
 - Preserva nomes de pacotes contendo class na descoberta JUnit: remove somente a extensão terminal .class. Regressão reproduziu example.classic convertido incorretamente em exampleic; fixture CLI com JUnit real cobre o pacote válido no host JDK 21 e no Termux ARM64/Android 16.
