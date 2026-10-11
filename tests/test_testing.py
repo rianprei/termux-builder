@@ -5,10 +5,19 @@ from types import SimpleNamespace
 import unittest
 from unittest import mock
 
-from builder.testing import run_tests
+from builder.testing import run_tests, _find_test_classes
 
 
 class TestOutputInvalidationTests(unittest.TestCase):
+    def test_discovery_preserves_package_names_containing_class(self):
+        with tempfile.TemporaryDirectory() as temp:
+            package = Path(temp) / 'example/classic'
+            package.mkdir(parents=True)
+            (package / 'FeatureTest.class').write_bytes(b'fixture')
+            (package / 'Helper.class').write_bytes(b'fixture')
+            (package / 'FeatureTest$Inner.class').write_bytes(b'fixture')
+            self.assertEqual(_find_test_classes(temp), ['example.classic.FeatureTest'])
+
     def test_kotlin_uses_compiler_jvm_target_spelling(self):
         for version, expected in ((8, '1.8'), (17, '17')):
             with self.subTest(version=version), tempfile.TemporaryDirectory() as temp:

@@ -226,7 +226,7 @@ def _find_test_classes(classes_dir):
         if "$" in os.path.basename(cls):
             continue
         rel = os.path.relpath(cls, classes_dir)
-        name = rel.replace(os.sep, ".").replace(".class", "")
+        name = rel[:-len(".class")].replace(os.sep, ".")
         base = name.rsplit(".", 1)[-1]
         if base.endswith("Test") or base.startswith("Test"):
             classes.append(name)

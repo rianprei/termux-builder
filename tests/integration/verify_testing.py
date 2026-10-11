@@ -43,7 +43,7 @@ with tempfile.TemporaryDirectory(prefix='termux-builder-junit-') as temp:
     sources = project / 'src/test'
     sources.mkdir(parents=True)
     passing = sources / 'PassingTest.java'
-    passing.write_text('import org.junit.Test; public class PassingTest { @Test public void passes() {} }')
+    passing.write_text('package example.classic; import org.junit.Test; public class PassingTest { @Test public void passes() {} }')
     removed = sources / 'RemovedTest.java'
     removed.write_text('import org.junit.Test; import static org.junit.Assert.*; '
         'public class RemovedTest { @Test public void fails() { fail("intentional fixture failure"); } }')
