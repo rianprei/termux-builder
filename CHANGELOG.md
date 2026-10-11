@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Corrige KSP em aplicativos mistos: adia javac, entrega fontes Java originais/R/BuildConfig/ViewBinding à análise KSP e compila Java após Kotlin sem APT duplicado. Regressões falharam antes da correção; provider real descobre anotação Java, gera classes consumidas nos dois idiomas e retorna 17 na JVM. APK/AAB assinados, rebuilds sem clean e 293 testes passaram no host.
+
 - Corrige compilação mista do aplicativo sem processadores: Kotlin resolve fontes Java antes de Java compilar contra suas classes. Fixture real pela CLI cobre APK/AAB assinados, referências nos dois sentidos, valor JVM e dependências removidas/restauradas sem clean. KAPT/KSP reais foram revalidados no host; integra o caso comum à CI.
 
 - Integra à CI fixture pública de preflight AAB: projetos temporários e PATH isolado reproduzem Java/jarsigner/aapt2 ausentes, exigindo código 1 e preservação da saída anterior com --clean. Passou no host sem mocks da CLI; complementa builds reais.

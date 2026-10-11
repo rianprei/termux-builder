@@ -10,6 +10,20 @@ from builder.compiler import _effective_java_version
 
 
 class EffectiveJavaVersionTests(unittest.TestCase):
+    def test_ksp_java_compilation_waits_for_generated_kotlin(self):
+        with tempfile.TemporaryDirectory() as temp:
+            config = SimpleNamespace(build_dir=temp, java_classes_dir=os.path.join(temp, 'classes'),
+                gen_dir=os.path.join(temp, 'gen'), view_binding=False, kapt_enabled=False, ksp_enabled=True,
+                annotation_processors=['provider.jar'], bin_javac='javac', find_lib_jars=lambda: [],
+                find_kotlin_files=lambda: ['Value.kt'],
+                find_java_files=lambda base_dir=None: ['Consumer.java'] if base_dir is None else [])
+            with patch('builder.compiler._resolve_android_jar', return_value='android.jar'), \
+                 patch('builder.compiler._effective_java_version', return_value=8), \
+                 patch('builder.compiler._can_use_ecj', return_value=False), \
+                 patch('builder.compiler._compile_java_javac') as execute:
+                compiler.compile_java(config)
+                execute.assert_not_called()
+
     def test_plain_mixed_java_compilation_is_deferred_until_kotlin(self):
         with tempfile.TemporaryDirectory() as temp:
             config = SimpleNamespace(build_dir=temp, java_classes_dir=os.path.join(temp, 'classes'),
@@ -377,9 +391,18 @@ class KotlinProcessorWiringTests(unittest.TestCase):
                 java_classes_dir=str(root / 'java'), find_kotlin_files=lambda: ['Main.kt'],
                 find_lib_jars=lambda: [], kapt_enabled=False, ksp_enabled=True,
                 annotation_processors=['processors/generator.jar', 'processors/other.jar'], bin_kotlinc='kotlinc', compose=False,
+                bin_javac='javac', gen_dir='gen', binding_dir='binding', view_binding=True,
+                find_java_files=lambda base_dir=None: {None: ['Consumer.java'], 'gen': ['R.java'], 'binding': ['Binding.java']}[base_dir],
             )
             with patch('builder.compiler._resolve_android_jar', return_value='android.jar'), patch(
                 'builder.compiler._effective_java_version', return_value=8
-            ), patch('builder.ksp.setup_ksp_toolchain', return_value=(['compiler'], 'ksp.jar')), patch('builder.compiler.run') as run:
+            ), patch('builder.ksp.setup_ksp_toolchain', return_value=(['compiler'], 'ksp.jar')), \
+                 patch('builder.compiler._compile_java_javac') as javac, \
+                 patch('builder.compiler.run') as run:
                 compiler.compile_kotlin(config)
             self.assertIn('plugin:com.google.devtools.ksp.symbol-processing:apclasspath=' + os.pathsep.join([str(processor), str(other)]), run.call_args_list[0].args[0])
+            for source in ('Consumer.java', 'R.java', 'Binding.java'):
+                self.assertIn(source, run.call_args_list[0].args[0])
+                self.assertIn(source, run.call_args_list[1].args[0])
+            javac.assert_called_once_with(config, ['Consumer.java', 'R.java', 'Binding.java'],
+                os.pathsep.join(['android.jar', config.java_classes_dir, config.kotlin_classes_dir]), 8)

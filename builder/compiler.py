@@ -64,7 +64,9 @@ def compile_java(config):
 
     kotlin_files = config.find_kotlin_files() if hasattr(config, "find_kotlin_files") else []
     if kotlin_files and (
-        getattr(config, "kapt_enabled", False) or not getattr(config, "annotation_processors", None)
+        getattr(config, "kapt_enabled", False)
+        or getattr(config, "ksp_enabled", False)
+        or not getattr(config, "annotation_processors", None)
     ):
         log.info("Java compilation deferred until Kotlin classes and generated sources are available")
         return
@@ -161,7 +163,9 @@ def compile_kotlin(config):
     generated_java = []
     java_sources = []
     if hasattr(config, "find_java_files") and (
-        getattr(config, "kapt_enabled", False) or not getattr(config, "annotation_processors", None)
+        getattr(config, "kapt_enabled", False)
+        or getattr(config, "ksp_enabled", False)
+        or not getattr(config, "annotation_processors", None)
     ):
         java_sources += config.find_java_files()
         if getattr(config, "gen_dir", None):
@@ -185,6 +189,7 @@ def compile_kotlin(config):
         log.info("ksp: running symbol processor (phase 1/2)")
         run(prefix + [
             *kt_files,
+            *java_sources,
             "-classpath", classpath,
             "-d", os.path.join(config.build_dir, "ksp", "stub_out"),
             "-jvm-target", jvm_target,

@@ -41,6 +41,7 @@ with tempfile.TemporaryDirectory(prefix='real-ksp-') as temp:
     processor_source.write_text('''
 import com.google.devtools.ksp.processing.*
 import com.google.devtools.ksp.symbol.KSAnnotated
+import com.google.devtools.ksp.symbol.KSClassDeclaration
 class Provider : SymbolProcessorProvider {
     override fun create(environment: SymbolProcessorEnvironment): SymbolProcessor = Processor(environment.codeGenerator)
 }
@@ -56,6 +57,11 @@ class Processor(private val generator: CodeGenerator) : SymbolProcessor {
             }
             generator.createNewFile(Dependencies.ALL_FILES, "", "generated-data", "txt").use {
                 it.write("real-ksp-resource".toByteArray())
+            }
+            if (resolver.getSymbolsWithAnnotation("java.lang.Deprecated").any { it is KSClassDeclaration && it.simpleName.asString() == "JavaConsumer" }) {
+                generator.createNewFile(Dependencies.ALL_FILES, "", "JavaSourceSeen", "java").use {
+                    it.write("public class JavaSourceSeen { public static int value() { return 3; } }".toByteArray())
+                }
             }
             generated = true
         }
@@ -153,7 +159,9 @@ class Processor(private val generator: CodeGenerator) : SymbolProcessor {
         (project / 'libraries').mkdir()
         shutil.copyfile(stdlib, project / 'libraries/kotlin-stdlib.jar')
         shutil.copyfile(manifest, project / 'AndroidManifest.xml')
-        (project / 'src/java/Main.kt').write_text('class Main { fun value(): Int = GeneratedJava.value() }')
+        (project / 'src/java/Main.kt').write_text('class Main { fun value(): Int = JavaConsumer.value() }')
+        java_consumer = project / 'src/java/JavaConsumer.java'
+        java_consumer.write_text('@Deprecated public class JavaConsumer { public static int value() { return new Generated().value() + GeneratedJava.value() + JavaSourceSeen.value(); } }')
         android_jar = Path(config.android_jar)
         raw = {
             'name': 'ksp-cli', 'cache-path': str(root / 'cache'), 'libs-path': 'libraries',
@@ -175,8 +183,13 @@ class Processor(private val generator: CodeGenerator) : SymbolProcessor {
             cli_dex.write_bytes(archive.read('classes.dex'))
         inspected = subprocess.run([options.dexdump, '-f', str(cli_dex)], check=True, capture_output=True, text=True)
         descriptors = set(re.findall(r"Class descriptor\s*:\s*'([^']+)'", inspected.stdout))
-        if not {'LGenerated;', 'LGeneratedJava;', 'LMain;'}.issubset(descriptors):
+        if not {'LGenerated;', 'LGeneratedJava;', 'LMain;', 'LJavaConsumer;', 'LJavaSourceSeen;'}.issubset(descriptors):
             raise RuntimeError('Generated KSP class definitions missing from CLI APK')
+        runner.write_text('public class Runner { public static void main(String[] args) { if (new Main().value()!=17) throw new AssertionError(); } }')
+        cli_runtime = os.pathsep.join([str(project / '.build/bin/classes/java'), str(project / '.build/bin/classes/kotlin'), stdlib, str(root)])
+        subprocess.run(['javac', '-proc:none', '-classpath', cli_runtime, '-d', str(root), str(runner)], check=True)
+        subprocess.run(['java', '-classpath', cli_runtime, 'Runner'], check=True)
+        print('REAL KSP JAVA: processor discovered original Java annotation; mixed bytecode executed with generated Kotlin/Java')
         print('REAL KSP CLI: project.yml build produced signature-verified APK containing processor resource')
         subprocess.run([sys.executable, '-m', 'builder', 'build', str(project), '--aab'], env=environment, check=True)
         bundle = project / '.build/ksp-cli-debug.aab'
@@ -187,13 +200,14 @@ class Processor(private val generator: CodeGenerator) : SymbolProcessor {
             cli_dex.write_bytes(archive.read('base/dex/classes.dex'))
         inspected = subprocess.run([options.dexdump, '-f', str(cli_dex)], check=True, capture_output=True, text=True)
         descriptors = set(re.findall(r"Class descriptor\s*:\s*'([^']+)'", inspected.stdout))
-        if not {'LGenerated;', 'LGeneratedJava;', 'LMain;'}.issubset(descriptors):
+        if not {'LGenerated;', 'LGeneratedJava;', 'LMain;', 'LJavaConsumer;', 'LJavaSourceSeen;'}.issubset(descriptors):
             raise RuntimeError('Generated KSP classes missing from CLI AAB')
         print('REAL KSP CLI AAB: bundletool validation and signature passed; generated classes/resource preserved')
         raw['android']['ksp'] = False
         raw['annotation-processors'] = []
         (project / 'project.yml').write_text(yaml.safe_dump(raw))
         (project / 'src/java/Main.kt').write_text('class Main { fun value(): Int = 0 }')
+        java_consumer.unlink()
         subprocess.run([sys.executable, '-m', 'builder', 'build', str(project)], env=environment, check=True)
         subprocess.run([options.apksigner, 'verify', str(artifact)], check=True)
         with zipfile.ZipFile(artifact) as archive:
@@ -202,7 +216,7 @@ class Processor(private val generator: CodeGenerator) : SymbolProcessor {
             cli_dex.write_bytes(archive.read('classes.dex'))
         inspected = subprocess.run([options.dexdump, '-f', str(cli_dex)], check=True, capture_output=True, text=True)
         descriptors = set(re.findall(r"Class descriptor\s*:\s*'([^']+)'", inspected.stdout))
-        if {'LGenerated;', 'LGeneratedJava;', 'LMain;'}.intersection(descriptors) != {'LMain;'}:
+        if {'LGenerated;', 'LGeneratedJava;', 'LMain;', 'LJavaConsumer;', 'LJavaSourceSeen;'}.intersection(descriptors) != {'LMain;'}:
             raise RuntimeError('Stale KSP class definitions survived CLI rebuild')
         print('REAL KSP CLI REBUILD: changed project.yml honored without clean; generated classes/resource removed; signature verified')
         subprocess.run([sys.executable, '-m', 'builder', 'build', str(project), '--aab'], env=environment, check=True)
@@ -213,6 +227,6 @@ class Processor(private val generator: CodeGenerator) : SymbolProcessor {
             cli_dex.write_bytes(archive.read('base/dex/classes.dex'))
         inspected = subprocess.run([options.dexdump, '-f', str(cli_dex)], check=True, capture_output=True, text=True)
         descriptors = set(re.findall(r"Class descriptor\s*:\s*'([^']+)'", inspected.stdout))
-        if {'LGenerated;', 'LGeneratedJava;', 'LMain;'}.intersection(descriptors) != {'LMain;'}:
+        if {'LGenerated;', 'LGeneratedJava;', 'LMain;', 'LJavaConsumer;', 'LJavaSourceSeen;'}.intersection(descriptors) != {'LMain;'}:
             raise RuntimeError('Stale KSP classes survived CLI AAB rebuild')
         print('REAL KSP CLI AAB REBUILD: generated classes/resource removed without clean; bundle validation and signature passed')
