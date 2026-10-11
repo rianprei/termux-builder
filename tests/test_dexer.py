@@ -8,6 +8,22 @@ from unittest.mock import patch
 from builder import dexer
 
 
+class D8ToolDetectionTests(unittest.TestCase):
+    def test_resolved_d8_path_does_not_require_tool_to_be_on_path(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            d8 = root / "sdk" / "build-tools" / "37.0.0" / "d8"
+            d8.parent.mkdir(parents=True)
+            d8.write_text("#!/bin/sh\n", encoding="utf-8")
+            d8.chmod(0o755)
+            path_dir = root / "empty-path"
+            path_dir.mkdir()
+            config = SimpleNamespace(bin_d8=str(d8))
+
+            with patch.dict(os.environ, {"PATH": str(path_dir)}):
+                self.assertTrue(dexer._has_d8(config))
+
+
 class LibraryDexCacheTests(unittest.TestCase):
     def test_library_dex_cache_is_outside_dependency_and_reused_only_when_valid(self):
         with tempfile.TemporaryDirectory() as tempdir:

@@ -1,5 +1,6 @@
 import os
 import shutil
+from builder.config import _resolve_sdk_bin
 from builder.utils import color
 from builder import __version__
 
@@ -8,6 +9,19 @@ _ECJ_JAR = "/data/data/com.termux/files/usr/share/dex/ecj.jar"
 
 
 def check():
+    sdk_path = None
+    sdk_env = None
+    for var in ("ANDROID_SDK", "ANDROID_HOME", "ANDROID_SDK_ROOT"):
+        val = os.getenv(var)
+        if val and os.path.isdir(val):
+            sdk_path = val
+            sdk_env = var
+            break
+    if not sdk_path:
+        default = os.path.join(os.getenv("HOME", ""), ".termux-builder", "sdk")
+        if os.path.isdir(default):
+            sdk_path = default
+
     issues = 0
     print()
     print(color(f"termux-builder doctor v{__version__}", "bold"))
@@ -35,8 +49,8 @@ def check():
     print()
 
     print("Dexer (one required):")
-    d8 = shutil.which("d8")
-    dx = shutil.which("dx")
+    d8 = _resolve_sdk_bin(sdk_path, "d8", {})
+    dx = _resolve_sdk_bin(sdk_path, "dx", {})
     if d8:
         print(f"  {color('OK', 'green')}  d8: {d8}")
     elif dx:
@@ -47,7 +61,7 @@ def check():
     print()
 
     print("Resource tools (one required):")
-    aapt2 = shutil.which("aapt2")
+    aapt2 = _resolve_sdk_bin(sdk_path, "aapt2", {})
     aapt1 = shutil.which("aapt")
     if aapt2:
         print(f"  {color('OK', 'green')}  aapt2: {aapt2}")
@@ -60,7 +74,11 @@ def check():
 
     print("Signer:")
     for tool, pkg in [("apksigner", "apksigner"), ("keytool", "openjdk-17")]:
-        path = shutil.which(tool)
+        path = (
+            _resolve_sdk_bin(sdk_path, tool, {})
+            if tool == "apksigner"
+            else shutil.which(tool)
+        )
         if path:
             print(f"  {color('OK', 'green')}  {tool}: {path}")
         else:
@@ -69,19 +87,10 @@ def check():
     print()
 
     print("Android SDK / android.jar:")
-    sdk_path = None
-    for var in ("ANDROID_SDK", "ANDROID_HOME", "ANDROID_SDK_ROOT"):
-        val = os.getenv(var)
-        if val and os.path.isdir(val):
-            sdk_path = val
-            print(f"  {color('OK', 'green')}  ${var} = {val}")
-            break
-
-    if not sdk_path:
-        default = os.path.join(os.getenv("HOME", ""), ".termux-builder", "sdk")
-        if os.path.isdir(default):
-            sdk_path = default
-            print(f"  {color('OK', 'green')}  {default}")
+    if sdk_env:
+        print(f"  {color('OK', 'green')}  ${sdk_env} = {sdk_path}")
+    elif sdk_path:
+        print(f"  {color('OK', 'green')}  {sdk_path}")
 
     if sdk_path:
         platforms = os.path.join(sdk_path, "platforms")
@@ -101,7 +110,7 @@ def check():
     print("Optional tools:")
     optional = {"adb": "android-tools", "kotlinc": "kotlin", "git": "git", "aidl": "aidl", "d8": "d8", "apktool": "apktool"}
     for tool, pkg in optional.items():
-        path = shutil.which(tool)
+        path = d8 if tool == "d8" else shutil.which(tool)
         if path:
             print(f"  {color('OK', 'green')}  {tool}: {path}")
         else:

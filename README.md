@@ -16,6 +16,8 @@ O installer:
 - Configura `ANDROID_SDK` nos shell RCs
 - Verifica que tudo funciona no final
 
+Para cada ferramenta sem caminho explícito em `bins`, o builder procura primeiro no `PATH` e depois em `sdk-path/build-tools/<versão>` (ou no SDK resolvido). Assim, ferramentas nativas do Termux no `PATH` têm prioridade sobre as cópias do SDK.
+
 ## Quick Start
 
 ```bash
@@ -210,7 +212,7 @@ src/jniLibs/
 | `project.yml` nativo, Java + AndroidX → AAB | VALIDATED | Build local de módulo base com 15 entradas DEX; `jarsigner` e `bundletool validate` aprovados. |
 | APK V4 com sidecar `.idsig` | VALIDATED | Scaffold local com `min-sdk: 30`; `apksigner verify -v4-signature-file` confirmou V4. |
 | `bundletool build-apks --mode=universal` | VALIDATED | Executado sobre o AAB AndroidX acima; o APK universal passou `apksigner verify`. |
-| Instalação e abertura no Android | UNVERIFIED | Não instalamos nesta rodada os artefatos gerados pelo código atual; o E2E foi executado em Linux x86_64. |
+| Instalação e abertura no Android | VALIDATED | `termux-builder init <caminho-absoluto>` + `build --install` geraram e instalaram o APK pela CLI; `adb shell am start -W -n com.example.termuxbuildervalidation1011/.MainActivity` retornou `LaunchState: COLD` e `pidof` confirmou o processo em Android 16/API 36 `arm64-v8a`. O build foi feito no host Linux x86_64 e o pacote temporário foi removido. |
 | Build executado dentro do Termux/Bionic arm64 | UNVERIFIED | O build desta rodada foi executado em Linux x86_64; compatibilidade do builder no sandbox Termux não foi exercitada. |
 | Bibliotecas JNI/native em APK e AAB | UNVERIFIED | Há descoberta de bibliotecas e código de empacotamento, mas nenhum build E2E com bibliotecas `.so` reais foi executado nesta rodada. |
 | Kotlin, flavors e Compose | UNVERIFIED | Existem caminhos de implementação, mas não foram incluídos no build ponta a ponta desta matriz. Compose continua experimental. |
@@ -220,6 +222,19 @@ src/jniLibs/
 | Módulos de feature/dynamic delivery em AAB | NOT IMPLEMENTED | O AAB validado contém somente o módulo `base`. |
 
 `VALIDATED` descreve apenas as combinações e comandos listados acima. O teste em Linux não comprova execução nativa em Termux/Bionic; a assinatura de debug comprova integridade, não confiança ou identidade de publicação.
+
+Para repetir o smoke test em um dispositivo ADB autorizado, configure `ANDROID_SDK` no host e `DEVICE_SERIAL` com o serial do dispositivo:
+
+```sh
+set -e
+workspace=$(mktemp -d)
+python -m builder init "$workspace/app" --package com.example.termuxbuildervalidation1011
+python -m builder build "$workspace/app" --install --device "$DEVICE_SERIAL"
+adb -s "$DEVICE_SERIAL" shell am start -W -n com.example.termuxbuildervalidation1011/.MainActivity
+adb -s "$DEVICE_SERIAL" shell pidof com.example.termuxbuildervalidation1011
+adb -s "$DEVICE_SERIAL" uninstall com.example.termuxbuildervalidation1011
+rm -rf "$workspace"
+```
 
 ## Diagnostico
 

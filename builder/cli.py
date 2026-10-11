@@ -318,6 +318,7 @@ def _init(args):
         log.error("Directory already exists: %s", project_dir)
         sys.exit(1)
 
+    project_name = os.path.basename(project_dir)
     pkg_path = args.package.replace(".", os.sep)
     os.makedirs(os.path.join(project_dir, "src", "java", pkg_path))
     os.makedirs(os.path.join(project_dir, "src", "res", "layout"))
@@ -325,10 +326,10 @@ def _init(args):
     os.makedirs(os.path.join(project_dir, "src", "res", "drawable"))
     os.makedirs(os.path.join(project_dir, "src", "assets"), exist_ok=True)
 
-    app_name = args.name.replace("-", " ").replace("_", " ").title()
+    app_name = project_name.replace("-", " ").replace("_", " ").title()
 
     with open(os.path.join(project_dir, "project.yml"), "w") as f:
-        f.write(f"""name: {args.name}
+        f.write(f"""name: {project_name}
 build-path: .build
 libs-path: .libs
 cache-path: .cache

@@ -2,11 +2,66 @@ import json
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from builder.config import Config
 
 
 class NativeLibraryDiscoveryTests(unittest.TestCase):
+    def test_sdk_d8_is_selected_before_dx_fallback_when_not_on_path(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            sdk_dir = os.path.join(tempdir, "sdk")
+            d8 = os.path.join(sdk_dir, "build-tools", "37.0.0", "d8")
+            os.makedirs(os.path.dirname(d8))
+            with open(d8, "w", encoding="utf-8") as tool:
+                tool.write("#!/bin/sh\n")
+            os.chmod(d8, 0o755)
+            with open(os.path.join(tempdir, "AndroidManifest.xml"), "w", encoding="utf-8") as manifest:
+                manifest.write('<manifest package="com.example.app"/>')
+            with open(os.path.join(tempdir, "project.yml"), "w", encoding="utf-8") as project:
+                json.dump({"name": "app", "android": {"sdk-path": sdk_dir}}, project)
+
+            with patch("builder.config.find_bin", return_value=None):
+                config = Config(tempdir)
+
+            self.assertEqual(config.bin_d8, d8)
+
+    def test_resolves_sdk_build_tool_when_it_is_not_on_path(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            config = object.__new__(Config)
+            config.sdk_dir = os.path.join(tempdir, "sdk")
+            older = os.path.join(config.sdk_dir, "build-tools", "34.0.0", "aapt2")
+            newer = os.path.join(config.sdk_dir, "build-tools", "37.0.0", "aapt2")
+            for path in (older, newer):
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                with open(path, "w", encoding="utf-8") as tool:
+                    tool.write("#!/bin/sh\n")
+                os.chmod(path, 0o755)
+
+            with patch("builder.config.find_bin", return_value=None):
+                resolved = Config._resolve_bin(config, "aapt2", {})
+
+            self.assertEqual(resolved, newer)
+
+    def test_explicit_path_and_path_environment_precede_sdk_build_tools(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = os.path.join(tempdir, "sdk")
+            path_dir = os.path.join(tempdir, "path")
+            explicit = os.path.join(tempdir, "configured-aapt2")
+            on_path = os.path.join(path_dir, "aapt2")
+            in_sdk = os.path.join(root, "build-tools", "37.0.0", "aapt2")
+            for path in (explicit, on_path, in_sdk):
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                with open(path, "w", encoding="utf-8") as tool:
+                    tool.write("#!/bin/sh\n")
+                os.chmod(path, 0o755)
+
+            config = object.__new__(Config)
+            config.sdk_dir = root
+            with patch.dict(os.environ, {"PATH": path_dir}):
+                self.assertEqual(Config._resolve_bin(config, "aapt2", {}), on_path)
+                self.assertEqual(Config._resolve_bin(config, "aapt2", {"aapt2": explicit}), explicit)
+
     def test_library_native_paths_follow_stable_directory_order(self):
         with tempfile.TemporaryDirectory() as tempdir:
             libs_dir = os.path.join(tempdir, ".libs")

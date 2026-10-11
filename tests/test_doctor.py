@@ -1,0 +1,58 @@
+import contextlib
+import io
+import os
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+from builder.doctor import check
+
+
+class DoctorSdkToolTests(unittest.TestCase):
+    def test_reports_sdk_build_tools_that_are_not_on_path(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            sdk = root / "sdk"
+            empty_path = root / "empty-path"
+            empty_path.mkdir()
+            tools = {}
+            for version in ("36.0.0", "37.0.0"):
+                for name in ("d8", "aapt2", "apksigner"):
+                    tool = sdk / "build-tools" / version / name
+                    tool.parent.mkdir(parents=True, exist_ok=True)
+                    tool.write_text("#!/bin/sh\n", encoding="utf-8")
+                    tool.chmod(0o755)
+                    if version == "37.0.0":
+                        tools[name] = str(tool)
+
+            output = io.StringIO()
+            with patch.dict(os.environ, {"ANDROID_SDK": str(sdk), "PATH": str(empty_path)}):
+                with patch("builder.config.find_bin", return_value=None):
+                    with contextlib.redirect_stdout(output):
+                        check()
+
+            report = output.getvalue()
+            for name, path in tools.items():
+                self.assertIn(f"{name}: {path}", report)
+            self.assertNotIn("No dexer", report)
+
+    def test_reports_sdk_dx_when_d8_is_unavailable(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            sdk = root / "sdk"
+            dx = sdk / "build-tools" / "37.0.0" / "dx"
+            dx.parent.mkdir(parents=True)
+            dx.write_text("#!/bin/sh\n", encoding="utf-8")
+            dx.chmod(0o755)
+            empty_path = root / "empty-path"
+            empty_path.mkdir()
+
+            output = io.StringIO()
+            with patch.dict(os.environ, {"ANDROID_SDK": str(sdk), "PATH": str(empty_path)}):
+                with patch("builder.config.find_bin", return_value=None):
+                    with contextlib.redirect_stdout(output):
+                        check()
+
+            self.assertIn(f"dx (fallback): {dx}", output.getvalue())
+            self.assertNotIn("No dexer", output.getvalue())

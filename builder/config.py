@@ -120,6 +120,30 @@ def _is_legacy_maven_cache_directory(config, directory):
         return False
 
 
+def _resolve_sdk_bin(sdk_dir, name, bins_config):
+    if name in bins_config:
+        return bins_config[name]
+    path = find_bin(name)
+    if path:
+        return path
+
+    build_tools_dir = os.path.join(sdk_dir, "build-tools") if sdk_dir else None
+    if build_tools_dir and os.path.isdir(build_tools_dir):
+        versions = [
+            version for version in os.listdir(build_tools_dir)
+            if all(part.isdigit() for part in version.split("."))
+        ]
+        for version in sorted(
+            versions,
+            key=lambda value: tuple(int(part) for part in value.split(".")),
+            reverse=True,
+        ):
+            candidate = os.path.join(build_tools_dir, version, name)
+            if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+                return candidate
+    return None
+
+
 class Config:
     def __init__(self, project_dir, flavor=None):
         self.project_dir = os.path.abspath(project_dir)
@@ -250,7 +274,9 @@ class Config:
         self.bin_javac = self._resolve_bin("javac", bins)
         self.bin_kotlinc = self._resolve_bin("kotlinc", bins)
         # prefer d8, fallback to dx (Termux native)
-        self.bin_d8 = self._resolve_bin("d8", bins) if find_bin("d8") else self._resolve_bin("dx", bins)
+        self.bin_d8 = self._resolve_bin("d8", bins)
+        if self.bin_d8 == "d8" and "d8" not in bins:
+            self.bin_d8 = self._resolve_bin("dx", bins)
         self.bin_apksigner = self._resolve_bin("apksigner", bins)
 
     def _resolve_sdk(self, configured):
@@ -278,10 +304,8 @@ class Config:
         return jar  # will fail with clear error later
 
     def _resolve_bin(self, name, bins_config):
-        if name in bins_config:
-            return bins_config[name]
-        path = find_bin(name)
-        return path if path else name
+        path = _resolve_sdk_bin(self.sdk_dir, name, bins_config)
+        return path if path is not None else name
 
     def find_java_files(self, base_dir=None):
         from builder.utils import find_files

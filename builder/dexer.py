@@ -47,7 +47,7 @@ def dex(config):
 
 def _has_d8(config):
     # True only if bin_d8 resolves to the actual d8 binary, not dx fallback
-    return os.path.basename(config.bin_d8) == "d8" and shutil.which("d8") is not None
+    return os.path.basename(config.bin_d8) == "d8" and shutil.which(config.bin_d8) is not None
 
 
 def _run_r8(config, class_files, desugar_json=None):

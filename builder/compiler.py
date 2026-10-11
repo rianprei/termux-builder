@@ -8,7 +8,7 @@ _SYSTEM_ANDROID_JAR = "/data/data/com.termux/files/usr/share/java/android.jar"
 
 
 def _dexer_is_dx(config):
-    return os.path.basename(config.bin_d8) != "d8" or shutil.which("d8") is None
+    return os.path.basename(config.bin_d8) != "d8" or shutil.which(config.bin_d8) is None
 
 
 def _effective_java_version(config):
@@ -55,12 +55,13 @@ def compile_java(config):
     lib_jars = config.find_lib_jars()
     classpath = os.pathsep.join([android_jar] + lib_jars)
     java_ver = _effective_java_version(config)
+    javac = shutil.which(config.bin_javac)
 
     processors = getattr(config, "annotation_processors", None)
-    if processors and shutil.which("javac") is None:
+    if processors and javac is None:
         raise RuntimeError("annotation processors require javac (ecj does not support -processorpath) — install: pkg install openjdk-17")
 
-    if _can_use_ecj() and shutil.which("javac") is None:
+    if _can_use_ecj() and javac is None:
         _compile_java_ecj(all_java, classpath, java_ver, config.java_classes_dir)
     else:
         _compile_java_javac(config, all_java, classpath, java_ver, processors)
