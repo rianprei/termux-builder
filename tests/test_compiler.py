@@ -118,3 +118,94 @@ class CompilerOutputInvalidationTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     getattr(compiler, "compile_" + language)(config)
                 self.assertEqual(sentinel.read_bytes(), b"keep")
+
+
+class ProcessorOutputInvalidationTests(unittest.TestCase):
+    def test_no_sources_removes_previous_processor_outputs(self):
+        for language, names in (("java", ["gen-apt"]), ("kotlin", ["kapt", "ksp"])):
+            with self.subTest(language=language), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                for name in names:
+                    output = root / name
+                    output.mkdir()
+                    (output / "Deleted.java").write_text("obsolete")
+                config = SimpleNamespace(
+                    build_dir=temp, java_classes_dir=str(root / "java"),
+                    kotlin_classes_dir=str(root / "kotlin"), gen_dir=str(root / "gen"),
+                    view_binding=False, find_java_files=lambda base_dir=None: [],
+                    find_kotlin_files=lambda: [],
+                )
+                getattr(compiler, "compile_" + language)(config)
+                for name in names:
+                    self.assertFalse((root / name / "Deleted.java").exists())
+
+    def test_real_processor_does_not_leave_removed_generated_source(self):
+        import shutil
+        import subprocess
+        if shutil.which("javac") is None or shutil.which("jar") is None:
+            self.skipTest("real javac and jar unavailable")
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            processor_source = root / "Generator.java"
+            processor_source.write_text('''
+import java.util.Set;
+import javax.annotation.processing.*;
+import javax.lang.model.SourceVersion;
+import javax.lang.model.element.*;
+@SupportedAnnotationTypes("*")
+public class Generator extends AbstractProcessor {
+    public SourceVersion getSupportedSourceVersion() { return SourceVersion.latestSupported(); }
+    public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment round) {
+        for (Element element : round.getRootElements()) {
+            if (element.getAnnotation(Deprecated.class) != null) {
+                try (java.io.Writer writer = processingEnv.getFiler().createSourceFile("Generated").openWriter()) {
+                    writer.write("public class Generated {}");
+                } catch (java.io.IOException error) { throw new RuntimeException(error); }
+            }
+        }
+        return false;
+    }
+}
+''')
+            classes = root / "processor-classes"
+            subprocess.run(["javac", "-proc:none", "-d", str(classes), str(processor_source)], check=True)
+            service = classes / "META-INF/services/javax.annotation.processing.Processor"
+            service.parent.mkdir(parents=True)
+            service.write_text("Generator\n")
+            processor = root / "processor.jar"
+            subprocess.run(["jar", "cf", str(processor), "-C", str(classes), "."], check=True)
+            source = root / "Main.java"
+            output = root / "classes"
+            config = SimpleNamespace(
+                build_dir=temp, gen_dir=str(root / "gen"), view_binding=False,
+                java_classes_dir=str(output), bin_javac=shutil.which("javac"),
+                annotation_processors=[str(processor)], find_lib_jars=lambda: [],
+                find_java_files=lambda base_dir=None: [str(source)] if base_dir is None else [],
+            )
+            with patch("builder.compiler._resolve_android_jar", return_value=temp), patch(
+                "builder.compiler._effective_java_version", return_value=8
+            ), patch("builder.compiler._resolve_processor_jars", return_value=[str(processor)]):
+                source.write_text("@Deprecated public class Main {}")
+                compiler.compile_java(config)
+                self.assertTrue((root / "gen-apt/Generated.java").exists())
+                self.assertTrue((output / "Generated.class").exists())
+                source.write_text("public class Main {}")
+                compiler.compile_java(config)
+                self.assertFalse((root / "gen-apt/Generated.java").exists())
+                self.assertFalse((output / "Generated.class").exists())
+
+    def test_symlinked_processor_output_preserves_external_files(self):
+        for language, name in (("java", "gen-apt"), ("kotlin", "kapt"), ("kotlin", "ksp")):
+            with self.subTest(output=name), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                build = root / "build"
+                build.mkdir()
+                outside = root / "outside"
+                outside.mkdir()
+                sentinel = outside / "Keep.java"
+                sentinel.write_text("keep")
+                (build / name).symlink_to(outside, target_is_directory=True)
+                config = SimpleNamespace(build_dir=str(build))
+                with self.assertRaises(ValueError):
+                    getattr(compiler, "compile_" + language)(config)
+                self.assertEqual(sentinel.read_text(), "keep")

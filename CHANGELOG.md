@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Limpa saidas APT/KAPT/KSP antes da compilacao, incluindo projetos sem fontes restantes; recusa destinos por symlink e cobre remocao de fontes geradas com um processador javac real.
+
 - Invalida fontes ViewBinding antes da geracao para remover bindings de layouts apagados; valida o destino, ordena os layouts e falha explicitamente em XML malformado.
 
 - Remove apenas as fontes AIDL geradas antes de recompilar, inclusive apos apagar a ultima interface; valida o destino antes da limpeza e falha explicitamente quando ha fontes AIDL mas o compilador nao esta no PATH.

@@ -38,7 +38,17 @@ def _resolve_android_jar(config):
     )
 
 
+def _clear_processor_outputs(config, *names):
+    paths = [os.path.join(config.build_dir, name) for name in names]
+    for path in paths:
+        ensure_output_path(config.build_dir, path, "Annotation processor output")
+    for path in paths:
+        if os.path.lexists(path):
+            shutil.rmtree(path)
+
+
 def compile_java(config):
+    _clear_processor_outputs(config, "gen-apt")
     ensure_output_path(config.build_dir, config.java_classes_dir, "Java classes")
     if os.path.lexists(config.java_classes_dir):
         shutil.rmtree(config.java_classes_dir)
@@ -122,6 +132,7 @@ def _resolve_processor_jars(config, processors):
 
 
 def compile_kotlin(config):
+    _clear_processor_outputs(config, "kapt", "ksp")
     ensure_output_path(config.build_dir, config.kotlin_classes_dir, "Kotlin classes")
     if os.path.lexists(config.kotlin_classes_dir):
         shutil.rmtree(config.kotlin_classes_dir)

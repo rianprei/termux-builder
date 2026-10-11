@@ -232,6 +232,8 @@ As fontes Java geradas por AIDL também são invalidadas quando interfaces são 
 
 ViewBinding regenera suas fontes em um diretório limpo e falha em XML malformado. Um rebuild de APK no host Linux confirmou que o binding de um layout removido desaparece do DEX, com CRC e assinatura válidos. Essa validação não demonstra paridade completa com o ViewBinding do AGP.
 
+As saídas de processadores (`gen-apt`, `kapt` e `ksp`) são limpas antes da recompilação, inclusive quando não restam fontes. Um processador javac real confirmou que a remoção de uma anotação elimina seu fonte e sua classe gerados. A limpeza de KAPT/KSP tem testes de unidade; seus pipelines completos continuam sem validação real nesta rodada.
+
 Comparação local entre `15e09c4` e `9ea1e8b`, em Linux x86_64, OpenJDK 25.0.4.1, Build Tools 37.0.0 e plataforma `android-36`. Foram executadas 9 amostras intercaladas por revisão. Cada amostra usa um JAR Java pequeno, chama `builder.dexer._dex_libraries(config, use_d8=True)` uma vez sem cache e uma vez com cache; o harness cronometra com `time.perf_counter`, compara o SHA-256 do DEX e lê o pico de memória dos processos filhos.
 
 | Medida | `15e09c4` | `9ea1e8b` |
