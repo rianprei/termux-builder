@@ -5,10 +5,41 @@ from types import SimpleNamespace
 import unittest
 from unittest import mock
 
-from builder.testing import run_tests, _find_test_classes
+from builder.testing import run_tests, _find_test_classes, _write_coverage_report
 
 
 class TestOutputInvalidationTests(unittest.TestCase):
+    def test_coverage_report_refuses_unsafe_existing_destinations(self):
+        for kind in ('root_symlink', 'nested_symlink', 'fifo', 'file', 'hardlink'):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                outside = root / 'outside'
+                outside.mkdir()
+                marker = outside / 'coverage.xml'
+                marker.write_text('preserve')
+                report = root / 'report'
+                if kind == 'root_symlink':
+                    report.symlink_to(outside, target_is_directory=True)
+                elif kind == 'file':
+                    report.write_text('preserve')
+                else:
+                    report.mkdir()
+                    if kind == 'hardlink':
+                        os.link(marker, report / 'coverage.xml')
+                    elif kind == 'fifo':
+                        os.mkfifo(report / 'coverage.xml')
+                    else:
+                        (report / 'package').symlink_to(outside, target_is_directory=True)
+                config = SimpleNamespace(build_dir=str(root / 'build'),
+                    java_classes_dir='java', kotlin_classes_dir='kotlin', sources_dir='src')
+                with mock.patch('builder.testing._find_jacoco', return_value='cli.jar') as lookup, \
+                     mock.patch('builder.testing.run') as execute:
+                    with self.assertRaisesRegex(RuntimeError, 'Coverage report'):
+                        _write_coverage_report(config, 'exec', str(report))
+                    lookup.assert_not_called()
+                    execute.assert_not_called()
+                self.assertEqual(marker.read_text(), 'preserve')
+
     def test_discovery_preserves_package_names_containing_class(self):
         with tempfile.TemporaryDirectory() as temp:
             package = Path(temp) / 'example/classic'

@@ -194,9 +194,25 @@ def _find_jacoco(config, kind, group, classifier):
 
 
 def _write_coverage_report(config, exec_file, report_dir):
+    requested = report_dir or os.path.join(config.build_dir, "coverage")
+    report_dir = os.path.abspath(requested)
+    if os.path.realpath(requested) != os.path.realpath(report_dir):
+        raise RuntimeError("Coverage report path has ambiguous symlink traversal")
+    if os.path.realpath(report_dir) != report_dir:
+        raise RuntimeError("Coverage report path must not contain symlinks")
+    if os.path.lexists(report_dir):
+        if not os.path.isdir(report_dir):
+            raise RuntimeError("Coverage report output must be a directory")
+        def fail_walk(error):
+            raise RuntimeError("Coverage report directory cannot be inspected safely") from error
+        for directory, dirs, files in os.walk(report_dir, onerror=fail_walk):
+            for name in dirs + files:
+                metadata = os.lstat(os.path.join(directory, name))
+                if not (stat.S_ISDIR(metadata.st_mode) or
+                        (stat.S_ISREG(metadata.st_mode) and metadata.st_nlink == 1)):
+                    raise RuntimeError("Coverage report must not contain symlinks, special files or hard links")
     java = find_bin("java")
     cli_jar = _find_jacoco(config, "cli", "org.jacoco.cli", "nodeps")
-    report_dir = report_dir or os.path.join(config.build_dir, "coverage")
     ensure_dir(report_dir)
     run([
         java, "-jar", cli_jar, "report", exec_file,
