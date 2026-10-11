@@ -61,6 +61,7 @@ jobs:
           --d8 "$ANDROID_HOME/build-tools/35.0.0/d8"
           --dexdump "$ANDROID_HOME/build-tools/35.0.0/dexdump"
           --aapt2 "$ANDROID_HOME/build-tools/35.0.0/aapt2"
+          --apksigner "$ANDROID_HOME/build-tools/35.0.0/apksigner"
       - name: Real KSP processor integration
         run: >-
           python3 tests/integration/verify_ksp.py

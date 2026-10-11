@@ -10,6 +10,28 @@ from builder.compiler import _effective_java_version
 
 
 class EffectiveJavaVersionTests(unittest.TestCase):
+    def test_kapt_owns_processors_only_when_kotlin_sources_exist(self):
+        for enabled, kotlin_sources in ((True, ['Main.kt']), (True, []), (False, ['Main.kt'])):
+            with self.subTest(kapt=enabled, kotlin=kotlin_sources), tempfile.TemporaryDirectory() as temp:
+                (Path(temp) / 'processor.jar').write_bytes(b'fixture')
+                config = SimpleNamespace(build_dir=temp, project_dir=temp, java_classes_dir=os.path.join(temp, 'classes'),
+                    gen_dir=os.path.join(temp, 'gen'), view_binding=False,
+                    kapt_enabled=enabled, find_kotlin_files=lambda: kotlin_sources,
+                    find_java_files=lambda base_dir=None: ['R.java'] if base_dir is None else [],
+                    find_lib_jars=lambda: [], bin_javac='javac', annotation_processors=['processor.jar'])
+                with patch('builder.compiler._resolve_android_jar', return_value='android.jar'), \
+                     patch('builder.compiler._effective_java_version', return_value=8), \
+                     patch('builder.compiler.shutil.which', return_value='/usr/bin/javac'), \
+                     patch('builder.compiler._can_use_ecj', return_value=False), \
+                     patch('builder.compiler.run') as run:
+                    compiler.compile_java(config)
+                if enabled and kotlin_sources:
+                    run.assert_not_called()
+                else:
+                    args = run.call_args.args[0]
+                    self.assertIn('-processorpath', args)
+                    self.assertNotIn('-proc:none', args)
+
     def test_sdk_d8_keeps_configured_java_version_when_not_on_path(self):
         with tempfile.TemporaryDirectory() as tempdir:
             root = Path(tempdir)
@@ -271,6 +293,8 @@ class KotlinProcessorWiringTests(unittest.TestCase):
             config = SimpleNamespace(
                 build_dir=temp, project_dir=temp, kotlin_classes_dir=str(root / 'kotlin'),
                 java_classes_dir=str(root / 'java'), find_kotlin_files=lambda: ['Main.kt'],
+                find_java_files=lambda base_dir=None: ['Original.java'] if base_dir is None else ['R.java'],
+                gen_dir=str(root / 'gen'), view_binding=False,
                 find_lib_jars=lambda: [], kapt_enabled=True, ksp_enabled=False,
                 annotation_processors=['processor.jar'], bin_kotlinc='kotlinc', bin_javac='javac', compose=False,
             )
@@ -285,10 +309,15 @@ class KotlinProcessorWiringTests(unittest.TestCase):
             ) as run, patch('builder.compiler._can_use_ecj', return_value=False):
                 compiler.compile_kotlin(config)
             commands = [call.args[0] for call in run.call_args_list]
+            for command in commands:
+                self.assertIn('Original.java', command)
+                self.assertIn('R.java', command)
             self.assertIn(str(generated), commands[1])
             self.assertEqual(commands[2][0], 'javac')
             self.assertIn(str(generated), commands[2])
             self.assertIn(config.kotlin_classes_dir, commands[2][commands[2].index('-classpath') + 1])
+            self.assertIn('-proc:none', commands[2])
+            self.assertNotIn('-processorpath', commands[2])
 
     def test_generated_java_rejects_external_output(self):
         with tempfile.TemporaryDirectory() as temp:

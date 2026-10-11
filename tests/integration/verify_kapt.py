@@ -1,4 +1,5 @@
-import argparse,base64,os,re,shutil,subprocess,tempfile,zipfile
+import argparse,base64,os,re,secrets,shutil,subprocess,sys,tempfile,zipfile
+import yaml
 from pathlib import Path
 from types import SimpleNamespace
 from builder import kapt,compiler,dexer,packager,aab
@@ -7,6 +8,7 @@ parser.add_argument('--android-jar')
 parser.add_argument('--d8', default='d8')
 parser.add_argument('--dexdump', default='dexdump')
 parser.add_argument('--aapt2', default='aapt2')
+parser.add_argument('--apksigner', default='apksigner')
 options=parser.parse_args()
 with tempfile.TemporaryDirectory(prefix='real-kapt-') as temp:
  root=Path(temp)
@@ -130,3 +132,63 @@ public class Generator extends AbstractProcessor {
   if expected.intersection(descriptors) != {'LMain;'}:
    raise RuntimeError('Stale processor classes survived DEX rebuild: '+repr(descriptors))
   print('REAL DEX REBUILD: disabling KAPT removed direct bytecode and generated Java/Kotlin classes')
+  project=root/'cli-project'
+  (project/'src/java').mkdir(parents=True)
+  (project/'src/res').mkdir()
+  (project/'libraries').mkdir()
+  shutil.copyfile(libraries()[0],project/'libraries/kotlin-stdlib.jar')
+  shutil.copyfile(manifest,project/'AndroidManifest.xml')
+  (project/'src/java/JavaConsumer.java').write_text('public class JavaConsumer { public static int value() { return GeneratedJava.value() + Direct.value() + new Generated().value(); } }')
+  environment=os.environ.copy()
+  environment['TB_FIXTURE_PASSWORD']=secrets.token_hex(16)
+  keystore=root/'fixture.p12'
+  subprocess.run(['keytool','-genkeypair','-keystore',str(keystore),
+   '-storepass:env','TB_FIXTURE_PASSWORD','-keypass:env','TB_FIXTURE_PASSWORD',
+   '-alias','fixture','-dname','CN=Integration Fixture','-keyalg','RSA','-validity','1'],env=environment,check=True)
+  android_jar=Path(config.android_jar)
+  raw={'name':'kapt-cli','cache-path':str(root/'cache'),'libs-path':'libraries',
+   'annotation-processors':[str(root/'processor.jar')],
+   'android':{'kapt':True,'target-sdk':int(android_jar.parent.name.removeprefix('android-')),
+    'sdk-path':str(android_jar.parents[2]),'java-version':8,
+    'keystore-path':str(keystore),'keystore-alias':'fixture',
+    'keystore-store-pass':'env:TB_FIXTURE_PASSWORD','keystore-key-pass':'env:TB_FIXTURE_PASSWORD'},
+   'bins':{'kotlinc':str(wrapper),'aapt2':options.aapt2,'d8':options.d8,'apksigner':options.apksigner}}
+  for enabled in (True,False):
+   raw['android']['kapt']=enabled
+   raw['annotation-processors']=[str(root/'processor.jar')] if enabled else []
+   (project/'project.yml').write_text(yaml.safe_dump(raw))
+   (project/'src/java/Main.kt').write_text('class Main { fun value(): Int = '+
+    ('JavaConsumer.value()' if enabled else '0')+' }')
+   if not enabled:
+    (project/'src/java/JavaConsumer.java').unlink()
+   for bundle in (False,True):
+    subprocess.run([sys.executable,'-m','builder','build',str(project)]+(['--aab'] if bundle else []),env=environment,check=True)
+    if not bundle:
+     cli_classpath=os.pathsep.join([str(project/'.build/bin/classes/java'),
+      str(project/'.build/bin/classes/kotlin'),str(project/'.build/kapt/classes'),
+      str(project/'libraries/kotlin-stdlib.jar'),str(root)])
+     cli_runner=root/'CliRunner.java'
+     cli_runner.write_text('public class CliRunner { public static void main(String[] args) { if (new Main().value()!='+
+      ('25' if enabled else '0')+') throw new AssertionError(); } }')
+     subprocess.run(['javac','-proc:none','-classpath',cli_classpath,'-d',str(root),str(cli_runner)],check=True)
+     subprocess.run(['java','-classpath',cli_classpath,'CliRunner'],check=True)
+    artifact=project/('.build/kapt-cli-debug.'+('aab' if bundle else 'apk'))
+    subprocess.run(['jarsigner','-verify',str(artifact)] if bundle else
+     [options.apksigner,'verify',str(artifact)],check=True)
+    with zipfile.ZipFile(artifact) as archive:
+     if archive.testzip():
+      raise RuntimeError('Corrupt CLI KAPT artifact: '+str(artifact))
+     resource_name=('base/root/' if bundle else '')+'generated-data.txt'
+     if enabled:
+      if archive.read(resource_name)!=b'real-kapt-resource':
+       raise RuntimeError('KAPT resource differs in CLI artifact')
+     elif resource_name in archive.namelist():
+      raise RuntimeError('Stale KAPT resource survived CLI rebuild')
+     cli_dex=root/'cli-classes.dex'
+     cli_dex.write_bytes(archive.read('base/dex/classes.dex' if bundle else 'classes.dex'))
+    inspected=subprocess.run([options.dexdump,'-f',str(cli_dex)],check=True,capture_output=True,text=True)
+    descriptors=set(re.findall(r"Class descriptor\s*:\s*'([^']+)'",inspected.stdout))
+    if (enabled and not expected.issubset(descriptors)) or (not enabled and expected.intersection(descriptors)!={'LMain;'}):
+     raise RuntimeError('Incorrect KAPT class definitions in CLI artifact: '+repr(descriptors))
+    print('REAL KAPT CLI '+('AAB' if bundle else 'APK')+(' BUILD' if enabled else ' REBUILD')+
+     ': signature and ZIP verified; generated classes/resource '+('preserved' if enabled else 'removed without clean'))

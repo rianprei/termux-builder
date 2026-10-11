@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Corrige processamento duplicado javac/KAPT: em projetos mistos, KAPT recebe os fontes Java, Kotlin resolve Java e javac compila apos a geracao sem executar novamente os processadores. A fixture real pela CLI verifica APK/AAB assinados e rebuilds sem clean.
+
 - Verifica estabilidade dos bytes do APK unsigned e do ZIP do modulo base AAB com recursos KAPT/KSP quando apenas os mtimes das entradas mudam.
 
 - Ordena deterministicamente os resultados da descoberta compartilhada de arquivos, eliminando dependencia da ordem de enumeracao do filesystem.
