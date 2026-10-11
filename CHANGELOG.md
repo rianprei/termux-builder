@@ -1,5 +1,9 @@
 ## Unreleased
 
+- Corrige assinatura AAB com chaves EC: remove SHA256withRSA fixo e usa a escolha do jarsigner adequada à chave, mantendo digest SHA-256. Regressão com keytool/jarsigner reais cobre RSA e EC; APK/AAB nativos e rebuild passaram com ambos.
+
+- A fixture nativa aceita --key-algorithm e verifica estabilidade do conteúdo AAB entre builds sem alteração, registrando diferenças de conteúdo e metadados por entrada. RSA/EC mantiveram o payload; assinaturas variaram, sem alegar reprodutibilidade do arquivo assinado completo.
+
 - Verifica AAB Java nativo no Termux ARM64 pela CLI e no rebuild, com bundletool pinado, assinatura JAR, identidade do pacote e metadados do modulo base; fixture opcional --aab/--bundletool-jar permite cache offline e rejeita substituicao do JAR por um binario no PATH.
 
 - Valida redirecionamentos do bundletool antes de conectar, limita o download a 64 MiB e remove URLs assinadas dos erros de rede; testes verificam origens, credenciais, portas, limite de redirects, preservacao do cache e fechamento das respostas.

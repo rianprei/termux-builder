@@ -229,7 +229,11 @@ O download do bundletool usa a versão 1.18.3 e exige o SHA-256 fixado pelo proj
 
 `VALIDATED` descreve apenas as combinações e comandos listados acima. O teste em Linux não comprova execução nativa em Termux/Bionic; a assinatura de debug comprova integridade, não confiança ou identidade de publicação.
 
+A assinatura AAB usa o algoritmo escolhido pelo `jarsigner` para o tipo e tamanho da chave, mantendo SHA-256 nos digests do JAR. Chaves RSA e EC foram verificadas com ferramentas reais no host e no Termux. `bundletool validate` também aceita bundles sem assinatura: o pipeline verifica a assinatura JAR separadamente; validação estrutural não comprova assinatura nem confiança no certificado.
+
 ### Validação nativa no Termux
+
+Use `--key-algorithm EC` para repetir a fixture com chave EC; o padrão é RSA. No fluxo AAB, a fixture compara SHA-256 de cada entrada entre build e rebuild e falha se o conteúdo fora das entradas de assinatura JAR mudar. Também registra diferenças de metadados ZIP.
 
 Execute na raiz do checkout, com Python/PyYAML, JDK, aapt2, D8 e apksigner nativos instalados:
 
@@ -239,7 +243,7 @@ PYTHONPATH=. python tests/integration/verify_termux.py --android-jar /caminho/an
 
 A fixture cria um projeto e certificado temporários, executa build/rebuild pela CLI e verifica o APK, removendo seus arquivos ao terminar. Para incluir AAB, acrescente `--aab` e tenha `jarsigner` no PATH. Acrescente também `--bundletool-jar /caminho/bundletool-all-1.18.3.jar` para semear o cache e dispensar o download: o fixture verifica o SHA-256 e exige que o comando resolvido use esse JAR, recusando um executável `bundletool` que o substitua no PATH. Sem o JAR, o fluxo AAB pode precisar de rede ou de bundletool instalado. O AAB é verificado quanto a assinatura, estrutura, DEX, metadados e identidade do pacote via manifesto protobuf. Ela exige Android ARM64 e recusa execução como root. Sem `--android-jar`, usa a descoberta normal de SDK do projeto. O android.jar de `/data/data/com.termux/files/usr/share/java/` instalado neste dispositivo não contém os recursos de framework exigidos pelo template: o primeiro teste falhou com `Theme.Material.Light not found`. Com o JAR oficial da plataforma API 36, o template intacto compilou usando somente executáveis nativos do Termux, sem proot/glibc/Gradle.
 
-Na validação automatizada, ADB/MagiskSU transferiu o código/JAR e iniciou o processo com UID/GID 10357, contexto `untrusted_app_27` do Termux e capacidades Linux removidas. Isso verifica o build nativo nessa configuração; não comprova inicialização pelo terminal interativo, instalação do APK produzido ou processadores Kotlin no dispositivo. Uma amostra observou 20,468 s no build frio e 19,528 s no rebuild, ambos com APK de 12.689 bytes; não é uma comparação de desempenho antes/depois. Em outra execução com `--aab`, o primeiro AAB levou 23,976 s e o rebuild 24,499 s, com 5.512 e 5.514 bytes respectivamente (uma amostra por fase, após os builds APK). Isso não estabelece reprodutibilidade dos artefatos assinados.
+Na validação automatizada, ADB/MagiskSU transferiu o código/JAR e iniciou o processo com UID/GID 10357, contexto `untrusted_app_27` do Termux e capacidades Linux removidas. Isso verifica o build nativo nessa configuração; não comprova inicialização pelo terminal interativo, instalação do APK produzido ou processadores Kotlin no dispositivo. Uma amostra observou 20,468 s no build frio e 19,528 s no rebuild, ambos com APK de 12.689 bytes; não é uma comparação de desempenho antes/depois. Em outra execução com `--aab`, o primeiro AAB levou 23,976 s e o rebuild 24,499 s, com 5.512 e 5.514 bytes respectivamente (uma amostra por fase, após os builds APK). Isso não estabelece reprodutibilidade dos artefatos assinados. Em novas execuções completas com RSA e EC, APK/AAB e rebuild passaram; os hashes de todas as entradas fora da assinatura permaneceram iguais. Houve diferenças no conteúdo do bloco de assinatura e nos metadados ZIP das entradas de assinatura; portanto, o AAB assinado completo não foi idêntico byte a byte.
 
 ## Benchmark do cache DEX de bibliotecas
 

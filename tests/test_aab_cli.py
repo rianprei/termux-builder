@@ -1,6 +1,9 @@
 import argparse
 import os
+import secrets
+import shutil
 import stat
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -625,6 +628,36 @@ class AabBuildCommandTests(unittest.TestCase):
         with zipfile.ZipFile(first_zip) as archive:
             self.assertEqual(archive.namelist(), ["a.txt", "z.txt"])
             self.assertTrue(all(info.date_time == (1980, 1, 1, 0, 0, 0) for info in archive.infolist()))
+
+
+class AabSigningKeyCompatibilityTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which('keytool') and shutil.which('jarsigner'), 'Real JDK signing tools required')
+    def test_rsa_and_ec_keys_produce_verified_jar_signatures(self):
+        from builder.aab import _sign_aab
+        for algorithm in ('RSA', 'EC'):
+            with self.subTest(algorithm=algorithm), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                password = secrets.token_hex(16)
+                environment = os.environ.copy()
+                environment['TB_FIXTURE_PASSWORD'] = password
+                keystore = root / 'fixture.p12'
+                subprocess.run(['keytool', '-genkeypair', '-keystore', str(keystore),
+                    '-storepass:env', 'TB_FIXTURE_PASSWORD', '-keypass:env', 'TB_FIXTURE_PASSWORD',
+                    '-alias', 'fixture', '-dname', 'CN=Signing Fixture', '-keyalg', algorithm, '-validity', '1'],
+                    env=environment, check=True, capture_output=True)
+                artifact = root / 'fixture.aab'
+                with zipfile.ZipFile(artifact, 'w') as archive:
+                    archive.writestr('payload.txt', b'unchanged payload')
+                config = SimpleNamespace(keystore_path=str(keystore), keystore_alias='fixture',
+                    keystore_store_pass=password, keystore_key_pass=password)
+                _sign_aab(config, str(artifact))
+                verified = subprocess.run(['jarsigner', '-J-Duser.language=en', '-verify', str(artifact)],
+                    check=True, capture_output=True, text=True)
+                self.assertIn('jar verified.', verified.stdout)
+                with zipfile.ZipFile(artifact) as archive:
+                    self.assertEqual(archive.read('payload.txt'), b'unchanged payload')
+                    self.assertIn('META-INF/FIXTURE.SF', archive.namelist())
+                    self.assertIn('META-INF/FIXTURE.' + ('RSA' if algorithm == 'RSA' else 'EC'), archive.namelist())
 
 
 if __name__ == "__main__":

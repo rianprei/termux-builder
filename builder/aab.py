@@ -212,11 +212,11 @@ def _bundle_output_path(config):
 
 
 def _sign_aab(config, aab_path):
-    """AAB is a JAR-format archive, signed with jarsigner (not apksigner —
-    apksigner targets the APK v2/v3 signature scheme, which does not apply
-    to .aab; Play Console re-signs on upload, but a local jarsigner
-    signature is required for bundletool's own validate/build-apks flows
-    that check signatures)."""
+    """Sign AAB using JAR signatures; APK v2/v3 schemes do not apply.
+
+    Bundletool structural validation and JAR signature verification are
+    separate gates: bundletool validate also accepts unsigned bundles.
+    """
     if not os.path.isfile(config.keystore_path):
         raise FileNotFoundError(f"Keystore not found: {config.keystore_path}")
     jarsigner = find_bin("jarsigner")
@@ -233,7 +233,6 @@ def _sign_aab(config, aab_path):
         "-keystore", config.keystore_path,
         "-storepass:env", "_TB_KS_PASS",
         "-keypass:env", "_TB_KEY_PASS",
-        "-sigalg", "SHA256withRSA",
         "-digestalg", "SHA-256",
         aab_path,
         config.keystore_alias,

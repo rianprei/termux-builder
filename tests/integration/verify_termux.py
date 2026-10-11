@@ -1,5 +1,6 @@
 """Run directly in Termux: PYTHONPATH=. python tests/integration/verify_termux.py."""
 import argparse
+import hashlib
 import json
 import os
 import platform
@@ -19,6 +20,7 @@ parser = argparse.ArgumentParser(description='Verify native Termux ARM64 CLI APK
 parser.add_argument('--android-jar', help='Official SDK platforms/android-N/android.jar; uses normal SDK discovery when omitted')
 parser.add_argument('--aab', action='store_true', help='Also verify native CLI App Bundle builds and rebuilds')
 parser.add_argument('--bundletool-jar', help='Pinned official bundletool JAR to seed the local cache for offline AAB verification')
+parser.add_argument('--key-algorithm', choices=('RSA', 'EC'), default='RSA', help='Algorithm for the temporary signing key')
 options = parser.parse_args()
 if options.bundletool_jar and not options.aab:
     parser.error('--bundletool-jar requires --aab')
@@ -54,7 +56,7 @@ with tempfile.TemporaryDirectory(prefix='termux-builder-native-') as temp:
     keystore = root / 'fixture.p12'
     subprocess.run([tools['keytool'], '-genkeypair', '-keystore', str(keystore),
         '-storepass:env', 'TB_FIXTURE_PASSWORD', '-keypass:env', 'TB_FIXTURE_PASSWORD',
-        '-alias', 'fixture', '-dname', 'CN=Native Integration Fixture', '-keyalg', 'RSA',
+        '-alias', 'fixture', '-dname', 'CN=Native Integration Fixture', '-keyalg', options.key_algorithm,
         '-validity', '1'], env=environment, check=True)
     raw['android'].update({'min-sdk': 21, 'target-sdk': 28, 'java-version': 8,
         'keystore-path': str(keystore), 'keystore-alias': 'fixture',
@@ -87,6 +89,7 @@ with tempfile.TemporaryDirectory(prefix='termux-builder-native-') as temp:
         observations.append({'phase': phase, 'seconds': elapsed, 'apk_bytes': artifact.stat().st_size})
     print('REAL TERMUX APK: CLI cold build and rebuild, native signing and package verification passed', flush=True)
     if options.aab:
+        snapshots = []
         for phase in ('aab-first', 'aab-rebuild'):
             start = time.monotonic()
             subprocess.run([sys.executable, '-m', 'builder', 'build', str(project), '--aab'],
@@ -111,7 +114,22 @@ with tempfile.TemporaryDirectory(prefix='termux-builder-native-') as temp:
                 for name in ('base/manifest/AndroidManifest.xml', 'base/resources.pb', 'BundleConfig.pb'):
                     if not archive.read(name):
                         raise RuntimeError('Missing App Bundle metadata: ' + name)
+                snapshots.append({entry.filename: {
+                    'sha256': hashlib.sha256(archive.read(entry)).hexdigest(),
+                    'timestamp': entry.date_time, 'compressed_bytes': entry.compress_size,
+                    'compression': entry.compress_type, 'attributes': entry.external_attr,
+                } for entry in archive.infolist()})
             observations.append({'phase': phase, 'seconds': elapsed, 'aab_bytes': artifact.stat().st_size})
+        names = sorted(set(snapshots[0]) | set(snapshots[1]))
+        changed_content = [name for name in names if snapshots[0].get(name, {}).get('sha256') != snapshots[1].get(name, {}).get('sha256')]
+        changed_metadata = [name for name in names if snapshots[0].get(name) != snapshots[1].get(name)]
+        signature_entries = {'META-INF/MANIFEST.MF'} | {name for name in names
+            if name.startswith('META-INF/') and name.count('/') == 1 and name.upper().endswith(('.SF', '.RSA', '.DSA', '.EC'))}
+        changed_payload = [name for name in changed_content if name not in signature_entries]
+        print(json.dumps({'aab_rebuild_comparison': {'content_changes': changed_content,
+            'entry_changes': changed_metadata, 'payload_changes': changed_payload}}), flush=True)
+        if changed_payload:
+            raise RuntimeError('Unchanged native project produced different AAB payload entries: ' + repr(changed_payload))
         print('REAL TERMUX AAB: CLI build/rebuild, bundletool validation and JAR signing passed', flush=True)
     print(json.dumps({'observations': observations, 'samples_per_phase': 1,
         'scope': 'Native smoke fixture; timings do not establish a performance comparison'}), flush=True)
