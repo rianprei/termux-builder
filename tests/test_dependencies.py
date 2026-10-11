@@ -12,6 +12,12 @@ from builder import deps, resources
 from builder.config import Config
 
 
+def _pom_response(text):
+    response = Mock(status_code=200)
+    response.iter_content.return_value = (text.encode("utf-8"),)
+    return response
+
+
 class DependencySafetyTests(unittest.TestCase):
     def test_resolve_keeps_same_artifact_version_from_distinct_groups_separate(self):
         namespace = "http://maven.apache.org/POM/4.0.0"
@@ -36,7 +42,7 @@ class DependencySafetyTests(unittest.TestCase):
             return url
 
         def get_pom(url, **kwargs):
-            return Mock(status_code=200, text=pom_by_url[url])
+            return _pom_response(pom_by_url[url])
 
         def write_artifact(url, destination):
             with open(destination, "wb") as artifact_file:
@@ -113,7 +119,7 @@ class DependencySafetyTests(unittest.TestCase):
             )
 
         def get_pom(url, **kwargs):
-            return Mock(status_code=200, text=poms[url])
+            return _pom_response(poms[url])
 
         downloads = []
 
@@ -191,7 +197,7 @@ class DependencySafetyTests(unittest.TestCase):
             return url
 
         def get_pom(url, **kwargs):
-            return Mock(status_code=200, text=poms[url])
+            return _pom_response(poms[url])
 
         def write_artifact(url, destination):
             downloaded.append(url)
@@ -254,7 +260,7 @@ class DependencySafetyTests(unittest.TestCase):
             config.flavor_res_dir = None
             config.compiled_res_dir = os.path.join(tempdir, "compiled-res")
             with patch.object(deps, "_find_artifact", return_value=pom_url) as find_artifact, patch.object(
-                deps.requests, "get", return_value=Mock(status_code=200, text=pom)
+                deps.requests, "get", return_value=_pom_response(pom)
             ), patch.object(deps, "_download", side_effect=write_aar), patch.object(
                 deps, "_verify_checksum", return_value=None
             ):
@@ -712,9 +718,8 @@ class DependencySafetyTests(unittest.TestCase):
 
     def test_non_jar_packaging_fails_instead_of_copying_a_pom_as_a_jar(self):
         pom_url = "https://repo1.maven.org/maven2/org/example/metadata/1.0/metadata-1.0.pom"
-        response = Mock(
-            status_code=200,
-            text='<project xmlns="http://maven.apache.org/POM/4.0.0"><packaging>pom</packaging></project>',
+        response = _pom_response(
+            '<project xmlns="http://maven.apache.org/POM/4.0.0"><packaging>pom</packaging></project>'
         )
         response.raise_for_status.return_value = None
         with tempfile.TemporaryDirectory() as tempdir:
@@ -732,9 +737,8 @@ class DependencySafetyTests(unittest.TestCase):
 
     def test_unsupported_transitive_pom_reports_dependency_and_source_url(self):
         pom_url = "https://repo1.maven.org/maven2/org/example/sample/1.0/sample-1.0.pom"
-        response = Mock(
-            status_code=200,
-            text='<project xmlns="http://maven.apache.org/POM/4.0.0"><parent /></project>',
+        response = _pom_response(
+            '<project xmlns="http://maven.apache.org/POM/4.0.0"><parent /></project>'
         )
         response.raise_for_status.return_value = None
         with tempfile.TemporaryDirectory() as tempdir:
@@ -798,7 +802,7 @@ class DependencySafetyTests(unittest.TestCase):
             return url
 
         def get_pom(url, **kwargs):
-            return Mock(status_code=200, text=pom_by_url[url])
+            return _pom_response(pom_by_url[url])
 
         def write_artifact(url, destination):
             with open(destination, "wb") as artifact_file:
@@ -859,7 +863,7 @@ class DependencySafetyTests(unittest.TestCase):
             return url
 
         def get_pom(url, **kwargs):
-            return Mock(status_code=200, text=pom_by_url[url])
+            return _pom_response(pom_by_url[url])
 
         def write_artifact(url, destination):
             with open(destination, "wb") as artifact_file:
@@ -944,8 +948,8 @@ class DependencySafetyTests(unittest.TestCase):
                 libs_dir=os.path.join(tempdir, "libs"),
             )
             with patch.object(deps, "_find_artifact", side_effect=find_artifact), patch.object(
-                deps.requests, "get", side_effect=lambda url, **kwargs: Mock(
-                    status_code=200, text=pom_by_url[url]
+                deps.requests, "get", side_effect=lambda url, **kwargs: _pom_response(
+                    pom_by_url[url]
                 )
             ), patch.object(deps, "_download", side_effect=write_artifact), patch.object(
                 deps, "_verify_checksum", return_value=None
@@ -993,7 +997,7 @@ class DependencySafetyTests(unittest.TestCase):
             return url
 
         def get_pom(url, **kwargs):
-            return Mock(status_code=200, text=pom_by_url[url])
+            return _pom_response(pom_by_url[url])
 
         def write_artifact(url, destination):
             with open(destination, "wb") as artifact_file:
@@ -1043,7 +1047,7 @@ class DependencySafetyTests(unittest.TestCase):
             return url
 
         def get_pom(url, **kwargs):
-            return Mock(status_code=200, text=poms[url])
+            return _pom_response(poms[url])
 
         def write_artifact(url, destination):
             with open(destination, "wb") as artifact_file:
@@ -1095,7 +1099,7 @@ class DependencySafetyTests(unittest.TestCase):
             return url
 
         def get_pom(url, **kwargs):
-            return Mock(status_code=200, text=poms[url])
+            return _pom_response(poms[url])
 
         def write_artifact(url, destination):
             with open(destination, "wb") as artifact_file:
@@ -1204,6 +1208,37 @@ class DependencySafetyTests(unittest.TestCase):
             with open(destination, "rb") as file:
                 self.assertEqual(file.read(), b"artifact")
             self.assertTrue(os.path.islink(destination + ".tmp"))
+
+    def test_resolve_rejects_oversized_pom_response(self):
+        namespace = "http://maven.apache.org/POM/4.0.0"
+        pom = f'<project xmlns="{namespace}"/>'
+        response = Mock(status_code=200, text=pom)
+        response.iter_content.return_value = iter(
+            [b"x" * (16 * 1024 * 1024), b"x"]
+        )
+
+        def write_artifact(url, destination):
+            with open(destination, "wb") as artifact_file:
+                artifact_file.write(b"jar")
+
+        downloader = Mock(side_effect=write_artifact)
+
+        with tempfile.TemporaryDirectory() as tempdir:
+            config = SimpleNamespace(
+                dependencies=["org.example:library:1.0"],
+                cache_dir=os.path.join(tempdir, "cache"),
+                libs_dir=os.path.join(tempdir, "libs"),
+            )
+            with patch.object(
+                deps, "_find_artifact", return_value="https://repo1.maven.org/maven2/org/example/library/1.0/library-1.0.pom"
+            ), patch.object(deps.requests, "get", return_value=response), patch.object(
+                deps, "_download", downloader
+            ), patch.object(deps, "_verify_checksum", return_value=None):
+                with self.assertRaisesRegex(RuntimeError, "POM.*16 MiB"):
+                    deps.resolve(config)
+
+        downloader.assert_not_called()
+        response.close.assert_called_once()
 
     def test_checksum_verification_rejects_malformed_digest(self):
         response = Mock(status_code=200, text="not-a-digest")

@@ -18,6 +18,7 @@ MAVEN_REPOS = [
 ]
 MAX_AAR_ENTRIES = 100_000
 MAX_AAR_UNCOMPRESSED_BYTES = 512 * 1024 * 1024
+MAX_MAVEN_POM_BYTES = 16 * 1024 * 1024
 
 
 def _normalize_maven_version(version):
@@ -281,11 +282,20 @@ def resolve(config):
     def fetch_pom(pom_url, coordinate):
         response = None
         try:
-            response = _maven_request("get", pom_url, timeout=30)
+            response = _maven_request("get", pom_url, timeout=30, stream=True)
             response.raise_for_status()
             if response.status_code != 200:
                 raise requests.HTTPError(f"Unexpected POM response status {response.status_code}")
-            return response.text
+            pom_data = bytearray()
+            for chunk in response.iter_content(64 * 1024):
+                if chunk:
+                    if len(pom_data) + len(chunk) > MAX_MAVEN_POM_BYTES:
+                        limit_mib = MAX_MAVEN_POM_BYTES // (1024 * 1024)
+                        raise RuntimeError(
+                            f"Maven POM for {coordinate} exceeds the {limit_mib} MiB size limit"
+                        )
+                    pom_data.extend(chunk)
+            return bytes(pom_data)
         except requests.RequestException as error:
             raise RuntimeError(f"Failed to fetch POM for {coordinate}: {error}") from error
         finally:
