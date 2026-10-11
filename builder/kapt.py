@@ -15,7 +15,12 @@ _K1_DIST_URL = f"https://github.com/JetBrains/kotlin/releases/download/v{_K1_VER
 
 
 def _detect_kotlinc_version(kotlinc_bin):
-    result = subprocess.run([kotlinc_bin, "-version"], capture_output=True, text=True)
+    try:
+        result = subprocess.run([kotlinc_bin, "-version"], capture_output=True, text=True, timeout=30)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("kapt: kotlinc -version timed out after 30 seconds; check the Kotlin installation and its Java runtime") from None
+    except OSError:
+        raise RuntimeError("kapt: could not start kotlinc; check the configured executable, permissions and PATH") from None
     if result.returncode != 0:
         raise RuntimeError(f"kapt: kotlinc -version failed with exit code {result.returncode}; check the Kotlin installation and its Java runtime")
     m = re.search(r"kotlinc-jvm (\d+\.\d+\.\d+)", result.stderr + '\n' + result.stdout)

@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Limita a sondagem Kotlin a 30 segundos e diagnostica falhas ao iniciar o executavel sem propagar saida ou dados da excecao do subprocesso.
+
 - Recusa sondagem Kotlin com codigo de saida nao zero, consulta stdout e stderr para a versao e evita incluir a saida bruta do processo nos erros KAPT.
 
 - Verifica Java antes dos downloads do fallback KAPT e informa como corrigir o PATH; regressao comprova que compilador e plugin nao sao baixados quando o runtime esta ausente.

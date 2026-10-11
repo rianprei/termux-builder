@@ -1,4 +1,5 @@
 import io
+import subprocess
 import tempfile
 import unittest
 import zipfile
@@ -27,6 +28,23 @@ def distribution(extra=None):
 
 
 class KaptRuntimeTests(unittest.TestCase):
+    def test_version_probe_has_deadline_and_suppresses_timeout_output(self):
+        error = subprocess.TimeoutExpired(['kotlinc', '-version'], 30, stderr=b'private-token')
+        with patch('builder.kapt.subprocess.run', side_effect=error) as run, patch(
+            'builder.kapt.setup_kapt_plugin'
+        ) as plugin:
+            with self.assertRaisesRegex(RuntimeError, 'timed out') as caught:
+                kapt.resolve_kapt_toolchain(SimpleNamespace(bin_kotlinc='kotlinc'))
+            self.assertEqual(run.call_args.kwargs['timeout'], 30)
+            self.assertNotIn('private-token', str(caught.exception))
+            self.assertTrue(caught.exception.__suppress_context__)
+            plugin.assert_not_called()
+
+    def test_missing_compiler_reports_actionable_error(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(RuntimeError, 'could not start.*PATH'):
+                kapt.resolve_kapt_toolchain(SimpleNamespace(bin_kotlinc=str(Path(directory) / 'missing-kotlinc')))
+
     def test_version_on_stdout_is_detected_despite_stderr_warning(self):
         result = SimpleNamespace(returncode=0, stderr='runtime warning', stdout='kotlinc-jvm 1.9.24')
         with patch('builder.kapt.subprocess.run', return_value=result), patch(
