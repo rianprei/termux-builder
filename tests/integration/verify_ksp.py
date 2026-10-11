@@ -125,3 +125,23 @@ class Processor(private val generator: CodeGenerator) : SymbolProcessor {
             if any(name.endswith(('.java', '.kt', '.class')) for name in archive.namelist()):
                 raise RuntimeError('Generated sources or JVM bytecode were packed into APK')
         print('REAL KSP APK: D8 class definitions verified; resource preserved in apksigner-verified signed APK')
+        source.write_text('class Main { fun value(): Int = 0 }')
+        config.ksp_enabled = False
+        config.find_lib_jars = lambda: [stdlib]
+        config.find_java_files = lambda *args: []
+        config.gen_dir = str(root / 'build/gen')
+        config.view_binding = False
+        compiler.compile_java(config)
+        compiler.compile_kotlin(config)
+        config.find_lib_jars = lambda: []
+        dexer.dex(config)
+        inspected = subprocess.run([options.dexdump, '-f', str(root / 'build/dex/classes.dex')], check=True, capture_output=True, text=True)
+        descriptors = set(re.findall(r"Class descriptor\s*:\s*'([^']+)'", inspected.stdout))
+        if {'LGenerated;', 'LGeneratedJava;', 'LMain;'}.intersection(descriptors) != {'LMain;'}:
+            raise RuntimeError('Stale generated KSP classes survived DEX rebuild')
+        unsigned = packager.package(config)
+        signed = signer.sign_apk(config, unsigned, signed)
+        with zipfile.ZipFile(signed) as archive:
+            if archive.testzip() or 'generated-data.txt' in archive.namelist():
+                raise RuntimeError('Stale KSP resource survived signed APK rebuild')
+        print('REAL KSP APK REBUILD: generated classes and resource removed; rebuilt APK signature verified')
