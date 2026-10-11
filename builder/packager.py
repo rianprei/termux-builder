@@ -5,6 +5,35 @@ import zipfile
 from builder.utils import dex_sort_key, ensure_output_path, find_files, log
 
 
+def _processor_resource_entries(config):
+    if not getattr(config, "kapt_enabled", False):
+        return []
+    root = os.path.join(config.build_dir, "kapt", "classes")
+    ensure_output_path(config.build_dir, root, "KAPT resources")
+    entries = []
+    for directory, directories, files in os.walk(root):
+        directories.sort()
+        for child in directories:
+            ensure_output_path(root, os.path.join(directory, child), "KAPT resource directory")
+        for filename in sorted(files):
+            path = os.path.join(directory, filename)
+            ensure_output_path(root, path, "KAPT resource")
+            if not os.path.isfile(path):
+                raise ValueError(f"KAPT resource must be a regular file: {path}")
+            if filename.endswith('.class'):
+                continue
+            name = os.path.relpath(path, root).replace(os.sep, '/')
+            parts = name.split('/')
+            if '\\' in name or any(part in {'', '.', '..'} for part in parts):
+                raise ValueError(f"Unsafe KAPT resource path: {name}")
+            if parts[0] in {'AndroidManifest.xml', 'resources.arsc', 'resources.pb', 'res', 'assets', 'lib', 'dex', 'manifest', 'root'} or name.endswith('.dex'):
+                raise ValueError(f"Reserved KAPT resource path: {name}")
+            if name.upper().startswith('META-INF/') and (name.upper() == 'META-INF/MANIFEST.MF' or name.upper().endswith(('.SF', '.RSA', '.DSA', '.EC'))):
+                raise ValueError(f"Signature metadata cannot be supplied by KAPT: {name}")
+            entries.append((path, name))
+    return entries
+
+
 def _append_file(apk, path, archive_name, used_names):
     if archive_name in used_names:
         raise RuntimeError(f"Duplicate APK entry: {archive_name}")
@@ -66,6 +95,7 @@ def package(config, abi=None):
             continue
         native_entries.append((so_path, f"lib/{lib_abi}/{os.path.basename(so_path)}"))
     native_entries.sort(key=lambda entry: entry[1])
+    processor_resources = _processor_resource_entries(config)
 
     fd, staging_path = tempfile.mkstemp(
         prefix=".unsigned-", suffix=".apk", dir=os.path.dirname(unsigned)
@@ -81,6 +111,8 @@ def package(config, abi=None):
             for path, name in dex_entries:
                 _append_file(apk, path, name, used_names)
             for path, name in native_entries:
+                _append_file(apk, path, name, used_names)
+            for path, name in processor_resources:
                 _append_file(apk, path, name, used_names)
         os.replace(staging_path, unsigned)
         staging_path = None

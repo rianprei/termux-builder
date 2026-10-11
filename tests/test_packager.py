@@ -6,6 +6,70 @@ import zipfile
 from types import SimpleNamespace
 
 from builder.packager import package
+from pathlib import Path
+
+
+class ProcessorResourceTests(unittest.TestCase):
+    def test_unsafe_or_conflicting_resources_preserve_previous_apk(self):
+        for kind in ('symlink', 'directory-symlink', 'reserved', 'signature', 'conflict', 'backslash'):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                (root / 'bin').mkdir()
+                (root / 'dex').mkdir()
+                resources = root / 'kapt/classes'
+                resources.mkdir(parents=True)
+                (root / 'dex/classes.dex').write_bytes(b'dex')
+                previous = root / 'bin/unsigned.apk'
+                previous.write_bytes(b'previous')
+                names = {'reserved': 'AndroidManifest.xml', 'signature': 'META-INF/CERT.RSA', 'backslash': 'bad\\name'}
+                resource = resources / names.get(kind, 'data.txt')
+                resource.parent.mkdir(parents=True, exist_ok=True)
+                if kind in ('symlink', 'directory-symlink'):
+                    outside = root / 'outside'
+                    if kind == 'directory-symlink':
+                        outside.mkdir()
+                        (outside / 'data.txt').write_bytes(b'outside')
+                        resource.symlink_to(outside, target_is_directory=True)
+                    else:
+                        outside.write_bytes(b'outside')
+                        resource.symlink_to(outside)
+                else:
+                    resource.write_bytes(b'resource')
+                with zipfile.ZipFile(root / 'bin/gen.apk.res', 'w') as archive:
+                    archive.writestr('AndroidManifest.xml', b'manifest')
+                    if kind == 'conflict':
+                        archive.writestr('data.txt', b'existing')
+                config = SimpleNamespace(build_dir=temp, bin_dir=str(root / 'bin'),
+                    dex_dir=str(root / 'dex'), kapt_enabled=True, find_native_libs=lambda: [])
+                with self.assertRaises((ValueError, RuntimeError)):
+                    package(config)
+                self.assertEqual(previous.read_bytes(), b'previous')
+
+    def test_kapt_resource_is_packaged_but_bytecode_is_not(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / 'bin').mkdir()
+            (root / 'dex').mkdir()
+            resource = root / 'kapt/classes/META-INF/services/example.Service'
+            resource.parent.mkdir(parents=True)
+            resource.write_text('example.Generated\n')
+            (root / 'kapt/classes/Generated.class').write_bytes(b'bytecode')
+            (root / 'dex/classes.dex').write_bytes(b'dex')
+            with zipfile.ZipFile(root / 'bin/gen.apk.res', 'w') as archive:
+                archive.writestr('AndroidManifest.xml', b'manifest')
+            config = SimpleNamespace(build_dir=temp, bin_dir=str(root / 'bin'),
+                dex_dir=str(root / 'dex'), kapt_enabled=True, find_native_libs=lambda: [])
+            with zipfile.ZipFile(package(config)) as archive:
+                self.assertEqual(archive.read('META-INF/services/example.Service'), b'example.Generated\n')
+                self.assertNotIn('Generated.class', archive.namelist())
+            from builder.aab import _prepare_base_module
+            proto = root / 'proto.apk'
+            with zipfile.ZipFile(proto, 'w') as archive:
+                archive.writestr('AndroidManifest.xml', b'manifest')
+                archive.writestr('resources.pb', b'resources')
+            base = root / 'bundle/base'
+            _prepare_base_module(config, str(base), str(proto))
+            self.assertEqual((base / 'root/META-INF/services/example.Service').read_bytes(), b'example.Generated\n')
 
 
 class PackagerDependencyDexTests(unittest.TestCase):

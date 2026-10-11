@@ -1,11 +1,12 @@
 import argparse,base64,os,re,shutil,subprocess,tempfile,zipfile
 from pathlib import Path
 from types import SimpleNamespace
-from builder import kapt,compiler,dexer
+from builder import kapt,compiler,dexer,packager,aab
 parser=argparse.ArgumentParser(description='Verify real KAPT generation and execution; optionally verify real DEX output')
 parser.add_argument('--android-jar')
 parser.add_argument('--d8', default='d8')
 parser.add_argument('--dexdump', default='dexdump')
+parser.add_argument('--aapt2', default='aapt2')
 options=parser.parse_args()
 with tempfile.TemporaryDirectory(prefix='real-kapt-') as temp:
  root=Path(temp)
@@ -42,6 +43,9 @@ public class Generator extends AbstractProcessor {
    try (java.io.Writer writer=processingEnv.getFiler().createResource(StandardLocation.SOURCE_OUTPUT,"","Generated.kt").openWriter()) {
     try (java.io.OutputStream binary=processingEnv.getFiler().createClassFile("Direct").openOutputStream()) {
      binary.write(java.util.Base64.getDecoder().decode("DIRECT_BYTES"));
+    }
+    try (java.io.Writer resource=processingEnv.getFiler().createResource(StandardLocation.CLASS_OUTPUT,"","generated-data.txt").openWriter()) {
+     resource.write("real-kapt-resource");
     }
     writer.write("class Generated { fun value(): Int = 7 }"); generated=true;
     try (java.io.Writer javaWriter=processingEnv.getFiler().createSourceFile("GeneratedJava").openWriter()) {
@@ -93,6 +97,24 @@ public class Generator extends AbstractProcessor {
   if not expected.issubset(descriptors):
    raise RuntimeError('Missing DEX class definitions: '+repr(expected-descriptors))
   print('REAL DEX: dexdump verified class definitions for direct KAPT bytecode and generated Java/Kotlin')
+  config.bin_dir=str(root/'build/bin')
+  Path(config.bin_dir).mkdir()
+  config.find_native_libs=lambda:[]
+  manifest=root/'AndroidManifest.xml'
+  manifest.write_text('<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.example.kapt"><uses-sdk android:minSdkVersion="21"/><application/></manifest>')
+  link=[options.aapt2,'link','-I',config.android_jar,'--manifest',str(manifest)]
+  subprocess.run(link+['-o',str(Path(config.bin_dir)/'gen.apk.res')],check=True)
+  apk=packager.package(config)
+  with zipfile.ZipFile(apk) as archive:
+   if archive.testzip() or archive.read('generated-data.txt')!=b'real-kapt-resource':
+    raise RuntimeError('Generated resource missing or corrupt in APK')
+  proto=root/'proto.apk'
+  subprocess.run(link+['--proto-format','-o',str(proto)],check=True)
+  base=root/'build/bundle/base'
+  aab._prepare_base_module(config,str(base),str(proto))
+  if (base/'root/generated-data.txt').read_bytes()!=b'real-kapt-resource':
+   raise RuntimeError('Generated resource missing from AAB base module')
+  print('REAL PACKAGING: KAPT resource preserved in unsigned APK and proto AAB base module')
   source.write_text('class Main { fun value(): Int = 0 }')
   config.kapt_enabled=False
   config.find_lib_jars=libraries

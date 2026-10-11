@@ -300,6 +300,15 @@ def _prepare_base_module(config, base_dir, proto_apk_path):
         shutil.copy2(dex, os.path.join(dex_dir, name))
         used_dex_names.add(name)
 
+    from builder.packager import _processor_resource_entries
+    for source, name in _processor_resource_entries(config):
+        destination = os.path.join(base_dir, "root", *name.split('/'))
+        ensure_output_path(base_dir, destination, "AAB processor resource")
+        if os.path.lexists(destination):
+            raise RuntimeError(f"Duplicate AAB processor resource: {name}")
+        ensure_dir(os.path.dirname(destination))
+        shutil.copyfile(source, destination)
+
     native_libs = config.find_native_libs() if hasattr(config, "find_native_libs") else []
     if native_libs:
         lib_dir = ensure_dir(os.path.join(base_dir, "lib"))
