@@ -178,6 +178,18 @@ class Processor(private val generator: CodeGenerator) : SymbolProcessor {
         if not {'LGenerated;', 'LGeneratedJava;', 'LMain;'}.issubset(descriptors):
             raise RuntimeError('Generated KSP class definitions missing from CLI APK')
         print('REAL KSP CLI: project.yml build produced signature-verified APK containing processor resource')
+        subprocess.run([sys.executable, '-m', 'builder', 'build', str(project), '--aab'], env=environment, check=True)
+        bundle = project / '.build/ksp-cli-debug.aab'
+        subprocess.run(['jarsigner', '-verify', str(bundle)], check=True)
+        with zipfile.ZipFile(bundle) as archive:
+            if archive.testzip() or archive.read('base/root/generated-data.txt') != b'real-ksp-resource':
+                raise RuntimeError('KSP resource missing or corrupt in CLI AAB')
+            cli_dex.write_bytes(archive.read('base/dex/classes.dex'))
+        inspected = subprocess.run([options.dexdump, '-f', str(cli_dex)], check=True, capture_output=True, text=True)
+        descriptors = set(re.findall(r"Class descriptor\s*:\s*'([^']+)'", inspected.stdout))
+        if not {'LGenerated;', 'LGeneratedJava;', 'LMain;'}.issubset(descriptors):
+            raise RuntimeError('Generated KSP classes missing from CLI AAB')
+        print('REAL KSP CLI AAB: bundletool validation and signature passed; generated classes/resource preserved')
         raw['android']['ksp'] = False
         raw['annotation-processors'] = []
         (project / 'project.yml').write_text(yaml.safe_dump(raw))

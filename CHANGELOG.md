@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Exercita AAB KSP real pela CLI na fixture da CI, verificando bundletool, assinatura JAR, classes geradas no DEX e recurso no modulo base.
+
 - Valida bins como mapa de strings de executaveis nao vazias e sem NUL antes da resolucao de ferramentas, evitando falhas indiretas nos subprocessos.
 
 - Valida mapas na raiz de project.yml e na secao android; erros de sintaxe YAML informam localizacao sem reproduzir linhas que possam conter credenciais.
