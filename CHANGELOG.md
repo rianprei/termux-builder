@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Amplia a integracao KAPT da CI com D8 e dexdump reais, verificando definicoes de classe e remocao de saidas antigas em rebuild sem KAPT.
+
 - Integra classes emitidas diretamente pelo KAPT ao classpath Kotlin/Java final e a coleta do DEX, com validacao de destino e fixture real de geracao e execucao de bytecode.
 
 - Limita a sondagem Kotlin a 30 segundos e diagnostica falhas ao iniciar o executavel sem propagar saida ou dados da excecao do subprocesso.

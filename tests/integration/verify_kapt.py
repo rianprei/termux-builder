@@ -1,7 +1,12 @@
-import base64,os,shutil,subprocess,tempfile,zipfile
+import argparse,base64,os,re,shutil,subprocess,tempfile,zipfile
 from pathlib import Path
 from types import SimpleNamespace
-from builder import kapt,compiler
+from builder import kapt,compiler,dexer
+parser=argparse.ArgumentParser(description='Verify real KAPT generation and execution; optionally verify real DEX output')
+parser.add_argument('--android-jar')
+parser.add_argument('--d8', default='d8')
+parser.add_argument('--dexdump', default='dexdump')
+options=parser.parse_args()
 with tempfile.TemporaryDirectory(prefix='real-kapt-') as temp:
  root=Path(temp)
  config=SimpleNamespace(cache_dir=str(root/'cache'),build_dir=str(root/'build'),project_dir=temp,
@@ -69,3 +74,37 @@ public class Generator extends AbstractProcessor {
  subprocess.run(['javac','-proc:none','-classpath',runtime_classpath,'-d',str(root),str(runner)],check=True)
  subprocess.run(['java','-classpath',runtime_classpath,'Runner'],check=True)
  print('REAL KAPT: configured processor generated Kotlin/Java; both compiled and executed; Kotlin references generated Java and directly emitted bytecode')
+
+ if options.android_jar:
+  config.android_jar=str(Path(options.android_jar).resolve(strict=True))
+  config.bin_d8=options.d8
+  config.dex_dir=str(root/'build/dex')
+  config.cache_dir=str(root/'dex-cache')
+  config.build_type='debug'
+  config.min_sdk=21
+  config.r8_enabled=False
+  libraries=config.find_lib_jars
+  config.find_lib_jars=lambda:[]
+  dexer.dex(config)
+  output=root/'build/dex/classes.dex'
+  inspected=subprocess.run([options.dexdump,'-f',str(output)],check=True,capture_output=True,text=True)
+  descriptors=set(re.findall(r"Class descriptor\s*:\s*'([^']+)'",inspected.stdout))
+  expected={'LDirect;','LGenerated;','LGeneratedJava;','LMain;'}
+  if not expected.issubset(descriptors):
+   raise RuntimeError('Missing DEX class definitions: '+repr(expected-descriptors))
+  print('REAL DEX: dexdump verified class definitions for direct KAPT bytecode and generated Java/Kotlin')
+  source.write_text('class Main { fun value(): Int = 0 }')
+  config.kapt_enabled=False
+  config.find_lib_jars=libraries
+  config.find_java_files=lambda *args:[]
+  config.gen_dir=str(root/'build/gen')
+  config.view_binding=False
+  compiler.compile_java(config)
+  compiler.compile_kotlin(config)
+  config.find_lib_jars=lambda:[]
+  dexer.dex(config)
+  rebuilt=subprocess.run([options.dexdump,'-f',str(output)],check=True,capture_output=True,text=True)
+  descriptors=set(re.findall(r"Class descriptor\s*:\s*'([^']+)'",rebuilt.stdout))
+  if expected.intersection(descriptors) != {'LMain;'}:
+   raise RuntimeError('Stale processor classes survived DEX rebuild: '+repr(descriptors))
+  print('REAL DEX REBUILD: disabling KAPT removed direct bytecode and generated Java/Kotlin classes')

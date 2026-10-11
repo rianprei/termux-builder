@@ -55,7 +55,11 @@ jobs:
       - name: Unit and signing integration tests
         run: python3 -m unittest discover -s tests -v
       - name: Real KAPT processor integration
-        run: python3 tests/integration/verify_kapt.py
+        run: >-
+          python3 tests/integration/verify_kapt.py
+          --android-jar "$ANDROID_HOME/platforms/android-34/android.jar"
+          --d8 "$ANDROID_HOME/build-tools/35.0.0/d8"
+          --dexdump "$ANDROID_HOME/build-tools/35.0.0/dexdump"
       - name: Real KSP processor integration
         run: python3 tests/integration/verify_ksp.py
       - name: Add Android build tools to PATH
