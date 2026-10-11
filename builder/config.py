@@ -254,6 +254,11 @@ class Config:
         self.keystore_key_pass = _resolve_password(android.get("keystore-key-pass", "android"), "keystore-key-pass")
 
         signing = android.get("signing", {})
+        if not isinstance(signing, dict):
+            raise ValueError("android.signing must be a mapping")
+        for scheme in ("v1", "v2", "v3", "v4"):
+            if scheme in signing and not isinstance(signing[scheme], bool):
+                raise ValueError(f"android.signing.{scheme} must be a boolean; use true or false without quotes")
         # v4 needs incremental-fs support (API 30+) to have any effect — off
         # by default below that so apksigner doesn't warn for nothing
         self.sign_v1 = signing.get("v1", True)

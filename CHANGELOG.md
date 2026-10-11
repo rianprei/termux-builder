@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Valida a secao android.signing e os booleanos v1-v4 antes do build, evitando interpretacoes divergentes de strings/numeros e diagnosticos tardios do apksigner.
+
 - Valida flags KAPT/KSP como booleanos YAML e annotation-processors como lista de caminhos nao vazios, recusando entradas ambiguas antes da preparacao do build.
 
 - Verifica rebuild pela CLI sem clean apos desabilitar KSP em project.yml, conferindo remocao das classes/recursos gerados e assinatura do APK final.

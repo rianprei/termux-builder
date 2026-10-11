@@ -8,6 +8,36 @@ from builder.config import Config
 
 
 class NativeLibraryDiscoveryTests(unittest.TestCase):
+    def test_explicit_signing_booleans_override_defaults(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            with open(os.path.join(tempdir, 'AndroidManifest.xml'), 'w') as manifest:
+                manifest.write('<manifest package="com.example.app"/>')
+            with open(os.path.join(tempdir, 'project.yml'), 'w') as project:
+                json.dump({'android': {'min-sdk': 30, 'signing': {'v1': False, 'v2': True, 'v3': False, 'v4': False}}}, project)
+            config = Config(tempdir)
+            self.assertEqual((config.sign_v1, config.sign_v2, config.sign_v3, config.sign_v4), (False, True, False, False))
+
+    def test_signing_flags_require_boolean_values(self):
+        for flag in ('v1', 'v2', 'v3', 'v4'):
+            for value in ('false', 0, None):
+                with self.subTest(flag=flag, value=value), tempfile.TemporaryDirectory() as tempdir:
+                    with open(os.path.join(tempdir, 'AndroidManifest.xml'), 'w') as manifest:
+                        manifest.write('<manifest package="com.example.app"/>')
+                    with open(os.path.join(tempdir, 'project.yml'), 'w') as project:
+                        json.dump({'android': {'signing': {flag: value}}}, project)
+                    with self.assertRaisesRegex(ValueError, 'signing.' + flag + ' must be a boolean'):
+                        Config(tempdir)
+
+    def test_signing_section_requires_mapping(self):
+        for value in (None, [], 'v4=false'):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as tempdir:
+                with open(os.path.join(tempdir, 'AndroidManifest.xml'), 'w') as manifest:
+                    manifest.write('<manifest package="com.example.app"/>')
+                with open(os.path.join(tempdir, 'project.yml'), 'w') as project:
+                    json.dump({'android': {'signing': value}}, project)
+                with self.assertRaisesRegex(ValueError, 'signing must be a mapping'):
+                    Config(tempdir)
+
     def test_processor_flags_require_yaml_booleans(self):
         for flag in ('kapt', 'ksp'):
             for value in ('false', 'true', 0, 1, None, []):
