@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Verifica KSP com D8, dexdump, aapt2 e apksigner reais na fixture da CI: gera APK assinado, confere classes no DEX e preservacao do recurso apos assinatura, com chave temporaria e senhas via ambiente.
+
 - Verifica falha de leitura para recursos KAPT/KSP e recuperacao de conflitos entre processadores em APK/modulo base AAB, incluindo preservacao do APK anterior e limpeza do staging.
 
 - Separa recursos KSP de fontes geradas e integra sua coleta segura ao APK/modulo base AAB; fixture real verifica resourceOutputDir e testes negativos cobrem ambos os processadores.

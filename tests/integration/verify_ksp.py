@@ -1,4 +1,7 @@
+import argparse
 import os
+import re
+import secrets
 import shutil
 import subprocess
 import tempfile
@@ -6,7 +9,13 @@ import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 
-from builder import compiler, ksp
+from builder import compiler, ksp, dexer, packager, signer
+
+parser = argparse.ArgumentParser(description='Verify real KSP; optionally build and sign a real APK with SDK tools')
+parser.add_argument('--android-jar')
+for tool in ('d8', 'dexdump', 'aapt2', 'apksigner'):
+    parser.add_argument('--' + tool, default=tool)
+options = parser.parse_args()
 
 with tempfile.TemporaryDirectory(prefix='real-ksp-') as temp:
     root = Path(temp)
@@ -77,3 +86,42 @@ class Processor(private val generator: CodeGenerator) : SymbolProcessor {
     if resource.read_bytes() != b'real-ksp-resource':
         raise RuntimeError('KSP resource was not separated from generated sources')
     print('REAL KSP RESOURCE: provider output preserved in dedicated resource directory')
+    if options.android_jar:
+        config.android_jar = str(Path(options.android_jar).resolve(strict=True))
+        config.bin_d8 = options.d8
+        config.dex_dir = str(root / 'build/dex')
+        config.cache_dir = str(root / 'dex-cache')
+        config.build_type = 'debug'
+        config.min_sdk = 21
+        config.r8_enabled = False
+        config.find_lib_jars = lambda: []
+        dexer.dex(config)
+        inspected = subprocess.run([options.dexdump, '-f', str(root / 'build/dex/classes.dex')], check=True, capture_output=True, text=True)
+        descriptors = set(re.findall(r"Class descriptor\s*:\s*'([^']+)'", inspected.stdout))
+        if not {'LGenerated;', 'LGeneratedJava;', 'LMain;'}.issubset(descriptors):
+            raise RuntimeError('Generated KSP classes missing from DEX definitions')
+        config.bin_dir = str(root / 'build/bin')
+        Path(config.bin_dir).mkdir()
+        config.find_native_libs = lambda: []
+        manifest = root / 'AndroidManifest.xml'
+        manifest.write_text('<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.example.ksp"><uses-sdk android:minSdkVersion="21"/><application/></manifest>')
+        subprocess.run([options.aapt2, 'link', '-I', config.android_jar, '--manifest', str(manifest), '-o', str(Path(config.bin_dir) / 'gen.apk.res')], check=True)
+        unsigned = packager.package(config)
+        config.keystore_path = str(root / 'fixture.p12')
+        config.keystore_store_pass = config.keystore_key_pass = secrets.token_hex(16)
+        config.keystore_alias = 'fixture'
+        environment = os.environ.copy()
+        environment['TB_FIXTURE_PASSWORD'] = config.keystore_store_pass
+        subprocess.run(['keytool', '-genkeypair', '-keystore', config.keystore_path,
+            '-storepass:env', 'TB_FIXTURE_PASSWORD', '-keypass:env', 'TB_FIXTURE_PASSWORD',
+            '-alias', config.keystore_alias, '-dname', 'CN=Integration Fixture', '-keyalg', 'RSA', '-validity', '1'], env=environment, check=True)
+        config.bin_apksigner = options.apksigner
+        config.sign_v1 = config.sign_v2 = config.sign_v3 = True
+        config.sign_v4 = False
+        signed = signer.sign_apk(config, unsigned, str(root / 'build/ksp-signed.apk'))
+        with zipfile.ZipFile(signed) as archive:
+            if archive.testzip() or archive.read('generated-data.txt') != b'real-ksp-resource':
+                raise RuntimeError('KSP resource missing or corrupt after APK signing')
+            if any(name.endswith(('.java', '.kt', '.class')) for name in archive.namelist()):
+                raise RuntimeError('Generated sources or JVM bytecode were packed into APK')
+        print('REAL KSP APK: D8 class definitions verified; resource preserved in apksigner-verified signed APK')
