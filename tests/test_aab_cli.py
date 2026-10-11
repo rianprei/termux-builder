@@ -230,6 +230,24 @@ class AabBuildCommandTests(unittest.TestCase):
                 _verify_aab(aab_path, ['bundletool'])
             execute.assert_not_called()
 
+    def test_aab_verification_refuses_corrupted_entry_crc(self):
+        from builder.aab import _verify_aab
+        aab_path = os.path.join(self.tempdir.name, 'corrupt-crc.aab')
+        with zipfile.ZipFile(aab_path, 'w', compression=zipfile.ZIP_STORED) as bundle:
+            for entry in ('BundleConfig.pb', 'base/resources.pb', 'base/manifest/AndroidManifest.xml'):
+                bundle.writestr(entry, 'fixture')
+            bundle.writestr('base/assets/data.txt', b'unique CRC payload')
+        with open(aab_path, 'rb') as archive:
+            original = archive.read()
+        self.assertEqual(original.count(b'unique CRC payload'), 1)
+        with open(aab_path, 'wb') as archive:
+            archive.write(original.replace(b'unique CRC payload', b'broken CRC payload'))
+        with patch('builder.aab.run') as execute:
+            execute.return_value.stdout = 'jar verified.'
+            with self.assertRaisesRegex(RuntimeError, 'AAB.*CRC'):
+                _verify_aab(aab_path, ['bundletool'])
+            execute.assert_not_called()
+
     def test_aab_verification_requires_structure_and_valid_signature(self):
         from builder.aab import _verify_aab
 

@@ -40,4 +40,19 @@ with tempfile.TemporaryDirectory(prefix='termux-builder-aab-negative-') as temp:
             raise RuntimeError('Expected empty manifest rejection before signature verification') from error
     else:
         raise RuntimeError('Empty AAB manifest was accepted')
-print('REAL AAB ARCHIVE: duplicate/unsafe entries and empty base manifest rejected')
+    corrupt = Path(temp) / 'corrupt-crc.aab'
+    shutil.copyfile(source, corrupt)
+    with zipfile.ZipFile(corrupt, 'a', compression=zipfile.ZIP_STORED) as archive:
+        archive.writestr('base/assets/crc-fixture.bin', b'unique CRC fixture payload')
+    data = corrupt.read_bytes()
+    if data.count(b'unique CRC fixture payload') != 1:
+        raise RuntimeError('CRC fixture payload must occur exactly once')
+    corrupt.write_bytes(data.replace(b'unique CRC fixture payload', b'broken CRC fixture payload'))
+    try:
+        _verify_aab(str(corrupt))
+    except RuntimeError as error:
+        if 'CRC' not in str(error):
+            raise RuntimeError('Expected CRC rejection before signature verification') from error
+    else:
+        raise RuntimeError('Corrupted AAB entry was accepted')
+print('REAL AAB ARCHIVE: duplicate/unsafe entries empty base manifest and corrupted CRC rejected')

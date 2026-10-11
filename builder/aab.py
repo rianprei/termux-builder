@@ -259,6 +259,9 @@ def _verify_aab(aab_path, bundletool_cmd=None):
             manifest = "base/manifest/AndroidManifest.xml"
             if manifest in present_entries and bundle.getinfo(manifest).file_size == 0:
                 raise RuntimeError("AAB contains an empty base manifest")
+            corrupt_entry = bundle.testzip()
+            if corrupt_entry is not None:
+                raise RuntimeError(f"AAB entry CRC verification failed: {corrupt_entry}")
     except (OSError, zipfile.BadZipFile) as e:
         raise RuntimeError(f"AAB is not a readable ZIP archive: {e}")
 
