@@ -10,6 +10,20 @@ from builder.doctor import check
 
 
 class DoctorSdkToolTests(unittest.TestCase):
+    def test_sdk_directory_without_android_jar_is_not_healthy(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            sdk = Path(tempdir) / 'sdk'
+            (sdk / 'platforms/android-36').mkdir(parents=True)
+            output = io.StringIO()
+            with patch.dict(os.environ, {'ANDROID_SDK': str(sdk)}), \
+                 patch('builder.doctor.shutil.which', return_value='/fixture/tool'), \
+                 patch('builder.doctor._resolve_sdk_bin', return_value='/fixture/tool'), \
+                 patch('builder.doctor._SYSTEM_ANDROID_JAR', str(Path(tempdir) / 'absent.jar')), \
+                 contextlib.redirect_stdout(output):
+                self.assertGreater(check(), 0)
+            self.assertIn('No android.jar', output.getvalue())
+            self.assertNotIn('All checks passed', output.getvalue())
+
     def test_reports_sdk_build_tools_that_are_not_on_path(self):
         with tempfile.TemporaryDirectory() as tempdir:
             root = Path(tempdir)

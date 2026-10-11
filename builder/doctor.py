@@ -102,7 +102,10 @@ def check():
 
     if os.path.isfile(_SYSTEM_ANDROID_JAR):
         print(f"  {color('OK', 'green')}  system android.jar: {_SYSTEM_ANDROID_JAR} (no setup needed)")
-    elif not sdk_path:
+    elif not sdk_path or not any(
+        os.path.isfile(os.path.join(sdk_path, "platforms", api, "android.jar"))
+        for api in apis
+    ):
         print(f"  {color('XX', 'red')}  No android.jar — run: termux-builder setup")
         issues += 1
     print()
