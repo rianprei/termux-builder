@@ -153,6 +153,7 @@ def compile_kotlin(config):
     generated_java = []
 
     if getattr(config, "ksp_enabled", False):
+        processor_jars = _resolve_processor_jars(config, config.annotation_processors)
         from builder.ksp import setup_ksp_toolchain
         prefix, ksp_plugin_jar = setup_ksp_toolchain(config)
         if not prefix:
@@ -181,7 +182,7 @@ def compile_kotlin(config):
             "-P", f"plugin:com.google.devtools.ksp.symbol-processing:cachesDir={ksp_caches}",
             "-P", "plugin:com.google.devtools.ksp.symbol-processing:incremental=false",
             "-P", "plugin:com.google.devtools.ksp.symbol-processing:allWarningsAsErrors=false",
-            "-P", f"plugin:com.google.devtools.ksp.symbol-processing:apclasspath={','.join(config.annotation_processors) if config.annotation_processors else ksp_plugin_jar}",
+            "-P", f"plugin:com.google.devtools.ksp.symbol-processing:apclasspath={os.pathsep.join(processor_jars)}",
         ])
 
         from builder.utils import find_files as _ff2

@@ -287,3 +287,23 @@ class KotlinProcessorWiringTests(unittest.TestCase):
                     compiler.compile_kotlin(config)
             javac.assert_not_called()
             self.assertEqual(sentinel.read_bytes(), b'keep')
+
+    def test_ksp_receives_resolved_processor_paths(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            processor = root / 'processors/generator.jar'
+            processor.parent.mkdir()
+            processor.write_bytes(b'jar')
+            other = processor.with_name('other.jar')
+            other.write_bytes(b'jar')
+            config = SimpleNamespace(
+                build_dir=temp, project_dir=temp, kotlin_classes_dir=str(root / 'kotlin'),
+                java_classes_dir=str(root / 'java'), find_kotlin_files=lambda: ['Main.kt'],
+                find_lib_jars=lambda: [], kapt_enabled=False, ksp_enabled=True,
+                annotation_processors=['processors/generator.jar', 'processors/other.jar'], bin_kotlinc='kotlinc', compose=False,
+            )
+            with patch('builder.compiler._resolve_android_jar', return_value='android.jar'), patch(
+                'builder.compiler._effective_java_version', return_value=8
+            ), patch('builder.ksp.setup_ksp_toolchain', return_value=(['compiler'], 'ksp.jar')), patch('builder.compiler.run') as run:
+                compiler.compile_kotlin(config)
+            self.assertIn('plugin:com.google.devtools.ksp.symbol-processing:apclasspath=' + os.pathsep.join([str(processor), str(other)]), run.call_args_list[0].args[0])
