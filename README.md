@@ -231,6 +231,8 @@ O download do bundletool usa a versão 1.18.3 e exige o SHA-256 fixado pelo proj
 
 `VALIDATED` descreve apenas as combinações e comandos listados acima. O teste em Linux não comprova execução nativa em Termux/Bionic; a assinatura de debug comprova integridade, não confiança ou identidade de publicação.
 
+A verificação AAB recusa entradas ZIP duplicadas, caminhos absolutos ou com traversal/componentes vazios, barras invertidas e symlinks antes de invocar bundletool/jarsigner. Essas verificações não substituem a validação do formato protobuf nem a assinatura JAR.
+
 A assinatura AAB usa o algoritmo escolhido pelo `jarsigner` para o tipo e tamanho da chave, mantendo SHA-256 nos digests do JAR. Chaves RSA e EC foram verificadas com ferramentas reais no host e no Termux. `bundletool validate` também aceita bundles sem assinatura: o pipeline verifica a assinatura JAR separadamente; validação estrutural não comprova assinatura nem confiança no certificado.
 
 ### Testes JUnit do projeto

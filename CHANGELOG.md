@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Recusa AAB com entradas ZIP duplicadas, paths absolutos/traversal/componentes vazios, barras invertidas ou symlinks antes do bundletool/jarsigner. Regressões exigem rejeição antes de subprocessos; integração com assinatura JAR real permanece aprovada.
+
 - Exercita a descoberta JUnit pela CLI com runtime oficial renomeado e JAR decoy incompatível; exige erro explícito quando o runtime é removido e recuperação após restaurá-lo. Fixture real passou no host JDK 21, incluindo geração/preservação JaCoCo.
 
 - Identifica JUnit 4 pelas entradas JUnitCore/Test do JAR, sem depender de seu nome. Evita selecionar junit-platform incompatível e aceita runtime renomeado; ignora arquivos ilegíveis, ZIPs inválidos, symlinks e arquivos especiais, com diagnóstico explícito quando não encontra runtime compatível.

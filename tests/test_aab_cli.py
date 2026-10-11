@@ -192,6 +192,31 @@ class AabBuildCommandTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Unsafe archive member symlink"):
             _prepare_base_module(config, base_dir, proto_path)
 
+    def test_aab_verification_refuses_duplicate_and_unsafe_entries(self):
+        from builder.aab import _verify_aab
+        required = ('BundleConfig.pb', 'base/manifest/AndroidManifest.xml', 'base/resources.pb')
+        for extra in ('BundleConfig.pb', '../escape', '/absolute', 'base/../escape', 'base\\escape', 'base//escape', 'symlink'):
+            with self.subTest(extra=extra):
+                aab_path = os.path.join(self.tempdir.name, 'unsafe.aab')
+                with zipfile.ZipFile(aab_path, 'w') as bundle:
+                    for entry in required:
+                        bundle.writestr(entry, 'fixture')
+                    import warnings
+                    with warnings.catch_warnings():
+                        warnings.simplefilter('ignore', UserWarning)
+                        if extra == 'symlink':
+                            member = zipfile.ZipInfo('base/assets/link')
+                            member.create_system = 3
+                            member.external_attr = 0o120777 << 16
+                            bundle.writestr(member, '../target')
+                        else:
+                            bundle.writestr(extra, 'fixture')
+                with patch('builder.aab.run') as execute:
+                    execute.return_value.stdout = 'jar verified.'
+                    with self.assertRaisesRegex(RuntimeError, 'AAB.*(duplicate|unsafe)'):
+                        _verify_aab(aab_path, ['bundletool'])
+                    execute.assert_not_called()
+
     def test_aab_verification_requires_structure_and_valid_signature(self):
         from builder.aab import _verify_aab
 

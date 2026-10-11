@@ -247,7 +247,15 @@ def _verify_aab(aab_path, bundletool_cmd=None):
     }
     try:
         with zipfile.ZipFile(aab_path) as bundle:
-            present_entries = set(bundle.namelist())
+            names = bundle.namelist()
+            if len(names) != len(set(names)):
+                raise RuntimeError("AAB contains duplicate archive entries")
+            for member in bundle.infolist():
+                parts = member.filename.rstrip("/").split("/")
+                if (not parts or any(part in ("", ".", "..") for part in parts)
+                        or "\\" in member.filename or stat.S_ISLNK(member.external_attr >> 16)):
+                    raise RuntimeError("AAB contains unsafe archive entries")
+            present_entries = set(names)
     except (OSError, zipfile.BadZipFile) as e:
         raise RuntimeError(f"AAB is not a readable ZIP archive: {e}")
 
