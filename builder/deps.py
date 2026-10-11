@@ -10,7 +10,7 @@ import xml.etree.ElementTree as ET
 from urllib.parse import urlsplit
 
 import requests
-from builder.utils import ensure_dir, log
+from builder.utils import _library_dex_cache_lock, ensure_dir, log
 
 MAVEN_REPOS = [
     "https://repo1.maven.org/maven2",
@@ -260,6 +260,15 @@ def _enqueue_transitive(queue, dependencies, inherited_exclusions):
 
 
 def resolve(config):
+    cache_root = os.path.join(config.cache_dir, "library-dex")
+    if os.path.islink(config.cache_dir) or os.path.islink(cache_root):
+        raise RuntimeError(f"Library DEX cache directory must not be a symlink: {cache_root}")
+    ensure_dir(cache_root)
+    with _library_dex_cache_lock(cache_root):
+        _resolve_dependencies(config)
+
+
+def _resolve_dependencies(config):
     _cleanup_stale_aar_staging(config.libs_dir)
     if not config.dependencies:
         config.resolved_dependency_dirs = set()

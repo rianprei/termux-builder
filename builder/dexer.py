@@ -3,7 +3,13 @@ import json
 import os
 import shutil
 import tempfile
-from builder.utils import run, ensure_dir, find_files, log
+from builder.utils import (
+    _library_dex_cache_lock,
+    run,
+    ensure_dir,
+    find_files,
+    log,
+)
 
 
 def dex(config):
@@ -154,25 +160,48 @@ def _remove_stale_library_dex_staging(cache_root):
 
 
 def _dex_libraries(config, use_d8):
-    lib_jars = sorted(config.find_lib_jars())
-    if not lib_jars:
-        config.library_dex_dir = None
-        return
-
     cache_root = os.path.join(config.cache_dir, "library-dex")
     if os.path.islink(config.cache_dir) or os.path.islink(cache_root):
         raise RuntimeError(f"Library DEX cache directory must not be a symlink: {cache_root}")
     ensure_dir(cache_root)
     _remove_stale_library_dex_staging(cache_root)
 
-    fingerprint = _library_dex_fingerprint(config, lib_jars, use_d8)
-    cache_dir = os.path.join(cache_root, fingerprint)
-    if os.path.islink(cache_dir):
-        raise RuntimeError(f"Library DEX cache entry must not be a symlink: {cache_dir}")
-    if _valid_library_dex_cache(cache_dir, fingerprint):
+    for _ in range(3):
+        with _library_dex_cache_lock(cache_root):
+            lib_jars = sorted(config.find_lib_jars())
+            if not lib_jars:
+                config.library_dex_dir = None
+                return
+
+            fingerprint = _library_dex_fingerprint(config, lib_jars, use_d8)
+            cache_dir = os.path.join(cache_root, fingerprint)
+            if os.path.islink(cache_dir):
+                raise RuntimeError(f"Library DEX cache entry must not be a symlink: {cache_dir}")
+            if _valid_library_dex_cache(cache_dir, fingerprint):
+                config.library_dex_dir = cache_dir
+                return
+            if not _build_library_dex_cache(
+                config, lib_jars, use_d8, cache_root, cache_dir, fingerprint
+            ):
+                continue
+
         config.library_dex_dir = cache_dir
         return
 
+    raise RuntimeError(
+        "Library DEX inputs kept changing during cache generation; retry when dependencies are stable"
+    )
+
+
+def _library_dex_inputs_unchanged(config, lib_jars, use_d8, fingerprint):
+    current_lib_jars = sorted(config.find_lib_jars())
+    return (
+        current_lib_jars == lib_jars
+        and _library_dex_fingerprint(config, current_lib_jars, use_d8) == fingerprint
+    )
+
+
+def _build_library_dex_cache(config, lib_jars, use_d8, cache_root, cache_dir, fingerprint):
     # build --classpath args for d8 (other libs as classpath context)
     classpath_args = []
     for j in lib_jars:
@@ -218,9 +247,6 @@ def _dex_libraries(config, use_d8):
         with open(manifest_path, "w") as output:
             json.dump(manifest, output, sort_keys=True, separators=(",", ":"))
 
-        if _valid_library_dex_cache(cache_dir, fingerprint):
-            config.library_dex_dir = cache_dir
-            return
         if os.path.lexists(cache_dir):
             if os.path.islink(cache_dir):
                 raise RuntimeError(f"Library DEX cache entry must not be a symlink: {cache_dir}")
@@ -230,11 +256,13 @@ def _dex_libraries(config, use_d8):
                 os.remove(cache_dir)
         os.replace(staging_dir, cache_dir)
         staging_dir = None
+        if not _library_dex_inputs_unchanged(config, lib_jars, use_d8, fingerprint):
+            shutil.rmtree(cache_dir)
+            return False
+        return True
     finally:
         if staging_dir is not None:
             shutil.rmtree(staging_dir, ignore_errors=True)
-
-    config.library_dex_dir = cache_dir
 
 
 def _library_dex_fingerprint(config, lib_jars, use_d8):

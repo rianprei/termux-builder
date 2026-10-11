@@ -1,10 +1,33 @@
-import subprocess
-import logging
-import shutil
+import fcntl
 import hashlib
+import logging
 import os
+import shutil
+import stat
+import subprocess
+from contextlib import contextmanager
 
 log = logging.getLogger("termux-builder")
+
+
+@contextmanager
+def _library_dex_cache_lock(cache_root):
+    nofollow = getattr(os, "O_NOFOLLOW", None)
+    if nofollow is None:
+        raise RuntimeError("DEX cache locking requires O_NOFOLLOW support")
+    lock_path = os.path.join(cache_root, ".library-dex.lock")
+    try:
+        lock_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR | nofollow, 0o600)
+    except OSError as exc:
+        raise RuntimeError(f"Cannot open DEX cache lock safely: {lock_path}") from exc
+    try:
+        if not stat.S_ISREG(os.fstat(lock_fd).st_mode):
+            raise RuntimeError(f"DEX cache lock must be a regular file: {lock_path}")
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(lock_fd)
+
 
 COLORS = {
     "green": "\033[0;32m",
