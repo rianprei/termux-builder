@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Corrige o alvo JVM dos testes Kotlin para 1.8 quando java-version é 8, preservando outros níveis. Regressão unitária falhou antes da correção; fixture CLI com Kotlin 1.9.24/JDK 21 reais verifica execução JUnit, bytecode major 52 e remoção do teste. Cenário conectado à CI; execução nativa Kotlin permanece não verificada.
+
 - Valida a fixture JUnit/JaCoCo real no Termux ARM64, Android 16/API 36 e JDK 21.0.12, sob UID/contexto SELinux do aplicativo e sem capacidades Linux. Confirma assertion negativa, remoção de testes, invalidação do bytecode, cobertura independente e erro de relatório; usa JARs oficiais em cache com hashes verificados. Não comprova instrumentação Android nem download no dispositivo.
 
 - Verifica JARs JaCoCo por SHA-256 fixado antes de download/publicação/reuso offline. Bootstrap exige resposta HTTPS 200 direta, limita conteúdo a 8 MiB e usa staging exclusivo; recusa caches corrompidos, symlinks e arquivos especiais, sanitiza erros de rede e limpa downloads interrompidos sem publicar cache parcial. Downloads oficiais e fixture JUnit/JaCoCo reais passaram no host.

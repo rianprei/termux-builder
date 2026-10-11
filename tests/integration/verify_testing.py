@@ -15,11 +15,15 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--android-jar', required=True)
 parser.add_argument('--junit-jar', required=True)
 parser.add_argument('--hamcrest-jar', required=True)
+parser.add_argument('--kotlinc', help='Real Kotlin compiler executable')
+parser.add_argument('--kotlin-stdlib', help='Matching Kotlin standard library JAR')
 parser.add_argument('--jacoco-agent', help='JaCoCo 0.8.12 runtime agent JAR')
 parser.add_argument('--jacoco-cli', help='JaCoCo 0.8.12 nodeps CLI JAR')
 args = parser.parse_args()
 if bool(args.jacoco_agent) != bool(args.jacoco_cli):
     parser.error('--jacoco-agent and --jacoco-cli must be supplied together')
+if bool(args.kotlinc) != bool(args.kotlin_stdlib):
+    parser.error('--kotlinc and --kotlin-stdlib must be supplied together')
 android_jar = Path(args.android_jar).resolve(strict=True)
 javac = shutil.which('javac')
 if not javac or not shutil.which('java'):
@@ -68,6 +72,25 @@ with tempfile.TemporaryDirectory(prefix='termux-builder-junit-') as temp:
     if classes.exists() and list(classes.rglob('*.class')):
         raise RuntimeError('JUnit bytecode survived removal of all sources')
     print('REAL JUNIT CLI: assertion failure, removal/rebuild and empty suite invalidation passed', flush=True)
+    if args.kotlinc:
+        shutil.copyfile(Path(args.kotlin_stdlib).resolve(strict=True), libs / 'kotlin-stdlib.jar')
+        configuration = yaml.safe_load((project / 'project.yml').read_text())
+        configuration['bins']['kotlinc'] = str(Path(args.kotlinc).resolve(strict=True))
+        (project / 'project.yml').write_text(yaml.safe_dump(configuration))
+        kotlin_test = sources / 'KotlinTest.kt'
+        kotlin_test.write_text('import org.junit.Test; import org.junit.Assert.assertEquals; '
+            'class KotlinTest { @Test fun passes() { assertEquals(7, 3 + 4) } }')
+        result = run_cli(0)
+        if 'OK (1 test)' not in result.stdout + result.stderr:
+            raise RuntimeError('Expected one real Kotlin JUnit test')
+        bytecode = (classes / 'KotlinTest.class').read_bytes()
+        if bytecode[:4] != b'\xca\xfe\xba\xbe' or int.from_bytes(bytecode[6:8], 'big') != 52:
+            raise RuntimeError('Kotlin test must compile to Java 8 bytecode')
+        kotlin_test.unlink()
+        run_cli(0)
+        if classes.exists() and list(classes.rglob('*.class')):
+            raise RuntimeError('Removed Kotlin test bytecode survived')
+        print('REAL KOTLIN JUNIT CLI: Java 8 bytecode, execution and removal passed', flush=True)
     if args.jacoco_agent:
         cache = project / '.cache/deps'
         cache.mkdir(parents=True)

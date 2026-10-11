@@ -101,7 +101,7 @@ def run_tests(config, coverage=False, coverage_report=None):
             *test_kt,
             "-classpath", kt_cp,
             "-d", test_classes_dir,
-            "-jvm-target", str(config.java_version),
+            "-jvm-target", "1.8" if config.java_version == 8 else str(config.java_version),
             "-no-reflect",
             "-no-stdlib",
         ])

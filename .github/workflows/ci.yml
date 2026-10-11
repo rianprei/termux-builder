@@ -70,10 +70,27 @@ jobs:
               "https://repo.maven.apache.org/maven2/org/jacoco/$group/0.8.12/$artifact.jar" \
               --output "$junit_fixture/$artifact.jar"
           done
+          python3 - "$junit_fixture" <<'PYTHON'
+          import os, shutil, sys
+          from pathlib import Path
+          from types import SimpleNamespace
+          from builder.kapt import setup_k1_compiler
+          root = Path(sys.argv[1])
+          jars = setup_k1_compiler(SimpleNamespace(cache_dir=str(root / 'cache')))
+          prefix = [shutil.which('java'), '-cp', os.pathsep.join(jars), 'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler']
+          wrapper = root / 'kotlinc'
+          wrapper.write_text('#!/usr/bin/env python3\nimport os,sys\nprefix=' + repr(prefix) + '\nos.execv(prefix[0],prefix+sys.argv[1:])\n')
+          wrapper.chmod(0o755)
+          stdlib = next(j for j in jars if Path(j).name == 'kotlin-stdlib.jar')
+          (root / 'stdlib-path').write_text(stdlib)
+          PYTHON
+          kotlin_stdlib=$(cat "$junit_fixture/stdlib-path")
           python3 tests/integration/verify_testing.py \
             --android-jar "$ANDROID_HOME/platforms/android-34/android.jar" \
             --junit-jar "$junit_fixture/junit-4.13.2.jar" \
             --hamcrest-jar "$junit_fixture/hamcrest-core-1.3.jar" \
+            --kotlinc "$junit_fixture/kotlinc" \
+            --kotlin-stdlib "$kotlin_stdlib" \
             --jacoco-agent "$junit_fixture/org.jacoco.agent-0.8.12-runtime.jar" \
             --jacoco-cli "$junit_fixture/org.jacoco.cli-0.8.12-nodeps.jar"
       - name: Real KAPT processor integration
