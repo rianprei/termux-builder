@@ -273,9 +273,8 @@ def compile_kotlin(config):
 
     if config.compose:
         compose_jar = _find_compose_compiler(config)
-        if compose_jar:
-            args += [f"-Xplugin={compose_jar}"]
-            log.info("Compose compiler plugin: %s", compose_jar)
+        args += [f"-Xplugin={compose_jar}"]
+        log.info("Compose compiler plugin: %s", compose_jar)
 
     if all_kt_files:
         run(args)
@@ -297,5 +296,4 @@ def _find_compose_compiler(config):
     ):
         if os.path.isfile(c):
             return c
-    log.warning("Compose compiler plugin not found — compiled without Compose support")
-    return None
+    raise RuntimeError("Compose compiler plugin not found — provide compose-compiler.jar in libs-path or cache-path, matching your Kotlin compiler")

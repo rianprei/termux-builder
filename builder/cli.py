@@ -199,6 +199,9 @@ def _build_locked(args, config):
         if not config.bin_aapt2 or not shutil.which(config.bin_aapt2):
             raise RuntimeError("aapt2 not found or not executable — AAB requires protobuf resources; install aapt2 or configure bins.aapt2")
 
+    if getattr(config, "compose", False):
+        compiler._find_compose_compiler(config)
+
     if args.clean:
         _do_clean(config)
 

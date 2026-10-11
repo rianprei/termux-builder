@@ -263,6 +263,18 @@ public class Generator extends AbstractProcessor {
 
 
 class KotlinProcessorWiringTests(unittest.TestCase):
+    def test_requested_compose_without_plugin_fails_before_compiler(self):
+        with tempfile.TemporaryDirectory() as temp:
+            config = SimpleNamespace(build_dir=temp, kotlin_classes_dir=os.path.join(temp, 'kotlin'),
+                java_classes_dir=os.path.join(temp, 'java'), libs_dir=os.path.join(temp, 'libs'), cache_dir=temp,
+                find_kotlin_files=lambda: ['Main.kt'], find_lib_jars=lambda: [], bin_kotlinc='kotlinc', compose=True)
+            with patch('builder.compiler._resolve_android_jar', return_value='android.jar'), \
+                 patch('builder.compiler._effective_java_version', return_value=8), \
+                 patch('builder.compiler.run') as execute:
+                with self.assertRaisesRegex(RuntimeError, 'compose-compiler.jar'):
+                    compiler.compile_kotlin(config)
+                execute.assert_not_called()
+
     def test_ksp_processes_java_without_kotlin_or_generated_kotlin(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

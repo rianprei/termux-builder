@@ -180,7 +180,7 @@ android:
   compose: true
 ```
 
-Requer `compose-compiler.jar` em `.libs/` ou `.cache/`. O builder passa `-Xplugin` automaticamente pro kotlinc.
+Requer `compose-compiler.jar` nos diretórios configurados por `libs-path` ou `cache-path` (padrão `.libs/` e `.cache/`), compatível com o compilador Kotlin usado. O builder passa `-Xplugin` automaticamente para kotlinc. Com `compose: true`, a ausência do JAR encerra APK/AAB com código 1 antes de `--clean`, dependências ou recursos, preservando artefatos anteriores. A fixture real verifica a falha em ambos os formatos e recupera o build comum após desabilitar Compose. A presença do JAR não comprova compatibilidade; Compose positivo continua experimental e não verificado ponta a ponta nesta matriz.
 
 ### Debug Keystore
 

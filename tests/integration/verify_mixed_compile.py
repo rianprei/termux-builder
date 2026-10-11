@@ -48,8 +48,8 @@ with tempfile.TemporaryDirectory(prefix='termux-builder-mixed-') as temp:
     kotlin.parent.mkdir(parents=True, exist_ok=True)
     kotlin_text = 'package com.example.mixed; class KotlinValue { fun value(): Int = JavaHelper.base() }'
     kotlin.write_text(kotlin_text)
-    def build(bundle=False, expected=0):
-        result = subprocess.run([sys.executable, '-m', 'builder', 'build', str(project), *(['--aab'] if bundle else [])],
+    def build(bundle=False, expected=0, clean=False):
+        result = subprocess.run([sys.executable, '-m', 'builder', 'build', str(project), *(['--aab'] if bundle else []), *(['--clean'] if clean else [])],
             env=environment, capture_output=True, text=True)
         print(result.stdout + result.stderr, flush=True)
         if result.returncode != expected:
@@ -71,6 +71,20 @@ with tempfile.TemporaryDirectory(prefix='termux-builder-mixed-') as temp:
     value = subprocess.check_output(['java', '-classpath', os.pathsep.join([str(root), runtime_cp]), 'Probe'], text=True)
     if value.strip() != '7':
         raise RuntimeError('Compiled mixed classes returned an unexpected JVM value')
+    sentinel = project / '.build/preserved-output.txt'
+    sentinel.write_bytes(b'previous output')
+    prior_outputs = {path: path.read_bytes() for path in (project / '.build').iterdir() if path.suffix in ('.apk', '.aab')}
+    config['android']['compose'] = True
+    (project / 'project.yml').write_text(yaml.safe_dump(config))
+    for bundle_mode in (False, True):
+        failure = build(bundle=bundle_mode, expected=1, clean=True)
+        if ('compose-compiler.jar' not in failure.stdout + failure.stderr or sentinel.read_bytes() != b'previous output'
+                or any(path.read_bytes() != contents for path, contents in prior_outputs.items())):
+            raise RuntimeError('Missing requested Compose plugin must fail explicitly before clean and preserve APK/AAB')
+    config['android']['compose'] = False
+    (project / 'project.yml').write_text(yaml.safe_dump(config))
+    build()
+    print('REAL COMPOSE NEGATIVE: missing requested plugin rejected before clean; ordinary Kotlin build recovered', flush=True)
     kotlin.unlink()
     failure = build(expected=1)
     if 'KotlinValue' not in failure.stdout + failure.stderr:
