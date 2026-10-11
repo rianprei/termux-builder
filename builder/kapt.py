@@ -266,6 +266,9 @@ def resolve_kapt_toolchain(config):
             return None, None
         return [config.bin_kotlinc], plugin
 
+    java = find_bin("java")
+    if not java:
+        raise RuntimeError("java not found — needed for K1 kapt fallback; install a compatible JDK and add java to PATH")
     log.info("System kotlinc %s uses K2 (kapt3 crashes on K2 — verified) — using K1 %s fallback", version, _K1_VERSION)
     classpath_jars = setup_k1_compiler(config)
     if not classpath_jars:
@@ -274,8 +277,5 @@ def resolve_kapt_toolchain(config):
     if not plugin:
         return None, None
 
-    java = find_bin("java")
-    if not java:
-        raise RuntimeError("java not found — needed for K1 kapt fallback")
     classpath = os.pathsep.join(classpath_jars)
     return [java, "-cp", classpath, "org.jetbrains.kotlin.cli.jvm.K2JVMCompiler"], plugin

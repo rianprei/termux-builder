@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Verifica Java antes dos downloads do fallback KAPT e informa como corrigir o PATH; regressao comprova que compilador e plugin nao sao baixados quando o runtime esta ausente.
+
 - Resolve caminhos relativos de processadores KSP contra o projeto e usa o separador de classpath exigido pelo plugin; adiciona integracao real na CI com um provider que gera, compila e executa Java/Kotlin.
 
 - Conecta os JARs de annotation-processors a fase KAPT, inclui Java gerado na resolucao Kotlin e compila essas fontes com javac/ECJ; adiciona integracao real na CI com geracao e execucao de classes Java/Kotlin.

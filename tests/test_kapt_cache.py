@@ -26,6 +26,31 @@ def distribution(extra=None):
     return out.getvalue()
 
 
+class KaptRuntimeTests(unittest.TestCase):
+    def test_available_java_is_used_for_fallback(self):
+        config = SimpleNamespace(bin_kotlinc='kotlinc')
+        with patch('builder.kapt._detect_kotlinc_version', return_value='2.0.0'), patch(
+            'builder.kapt.find_bin', return_value='/jdk/bin/java'
+        ), patch('builder.kapt.setup_k1_compiler', return_value=['compiler.jar']), patch(
+            'builder.kapt.setup_kapt_plugin', return_value='plugin.jar'
+        ):
+            prefix, plugin = kapt.resolve_kapt_toolchain(config)
+        self.assertEqual(prefix, ['/jdk/bin/java', '-cp', 'compiler.jar', 'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler'])
+        self.assertEqual(plugin, 'plugin.jar')
+
+    def test_missing_java_fails_before_fallback_downloads(self):
+        config = SimpleNamespace(bin_kotlinc='kotlinc')
+        with patch('builder.kapt._detect_kotlinc_version', return_value='2.0.0'), patch(
+            'builder.kapt.find_bin', return_value=None
+        ), patch('builder.kapt.setup_k1_compiler', return_value=['compiler.jar']) as compiler, patch(
+            'builder.kapt.setup_kapt_plugin', return_value='plugin.jar'
+        ) as plugin:
+            with self.assertRaisesRegex(RuntimeError, 'java not found'):
+                kapt.resolve_kapt_toolchain(config)
+            compiler.assert_not_called()
+            plugin.assert_not_called()
+
+
 class KotlinDistributionTests(unittest.TestCase):
     def response(self, data):
         response = Mock(status_code=200)
