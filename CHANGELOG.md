@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Verifica AAB Java nativo no Termux ARM64 pela CLI e no rebuild, com bundletool pinado, assinatura JAR, identidade do pacote e metadados do modulo base; fixture opcional --aab/--bundletool-jar permite cache offline e rejeita substituicao do JAR por um binario no PATH.
+
 - Valida redirecionamentos do bundletool antes de conectar, limita o download a 64 MiB e remove URLs assinadas dos erros de rede; testes verificam origens, credenciais, portas, limite de redirects, preservacao do cache e fechamento das respostas.
 
 - Adiciona fixture executavel no Termux ARM64 para builds Java reais pela CLI, assinatura, verificacao do APK e rebuild. Validada em Android 16 com UID/contexto do Termux e JAR oficial API 36; documenta a falha do JAR de sistema sem recursos de framework.

@@ -11,17 +11,24 @@ import tempfile
 import time
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import yaml
 
 parser = argparse.ArgumentParser(description='Verify native Termux ARM64 CLI APK builds')
 parser.add_argument('--android-jar', help='Official SDK platforms/android-N/android.jar; uses normal SDK discovery when omitted')
+parser.add_argument('--aab', action='store_true', help='Also verify native CLI App Bundle builds and rebuilds')
+parser.add_argument('--bundletool-jar', help='Pinned official bundletool JAR to seed the local cache for offline AAB verification')
 options = parser.parse_args()
+if options.bundletool_jar and not options.aab:
+    parser.error('--bundletool-jar requires --aab')
 if not hasattr(sys, 'getandroidapilevel') or platform.machine() != 'aarch64':
     raise RuntimeError('This fixture requires native Android ARM64 Python in Termux')
 if os.getuid() == 0:
     raise RuntimeError('Run this fixture as the Termux application user, not root')
 tools = {name: shutil.which(name) for name in ('java', 'javac', 'aapt2', 'd8', 'apksigner', 'keytool')}
+if options.aab:
+    tools['jarsigner'] = shutil.which('jarsigner')
 if not all(tools.values()):
     raise RuntimeError('Missing native tools: ' + ', '.join(name for name, path in tools.items() if not path))
 runtime_api = int(subprocess.check_output(['/system/bin/getprop', 'ro.build.version.sdk'], text=True).strip())
@@ -34,6 +41,14 @@ with tempfile.TemporaryDirectory(prefix='termux-builder-native-') as temp:
         '--package', 'com.example.nativevalidation'], check=True)
     raw = yaml.safe_load((project / 'project.yml').read_text())
     raw['cache-path'] = str(root / 'cache')
+    if options.bundletool_jar:
+        from builder.aab import _BUNDLETOOL_VERSION, _find_bundletool, _verify_bundletool
+        cached = root / 'cache/bundletool' / ('bundletool-all-' + _BUNDLETOOL_VERSION + '.jar')
+        cached.parent.mkdir(parents=True)
+        shutil.copyfile(Path(options.bundletool_jar).resolve(strict=True), cached)
+        _verify_bundletool(str(cached))
+        if _find_bundletool(SimpleNamespace(cache_dir=raw['cache-path'])) != [tools['java'], '-jar', str(cached)]:
+            raise RuntimeError('A bundletool executable in PATH overrides the seeded JAR; remove it from PATH or omit --bundletool-jar')
     environment = os.environ.copy()
     environment['TB_FIXTURE_PASSWORD'] = secrets.token_hex(16)
     keystore = root / 'fixture.p12'
@@ -71,5 +86,32 @@ with tempfile.TemporaryDirectory(prefix='termux-builder-native-') as temp:
             raise RuntimeError('Native APK package identity differs')
         observations.append({'phase': phase, 'seconds': elapsed, 'apk_bytes': artifact.stat().st_size})
     print('REAL TERMUX APK: CLI cold build and rebuild, native signing and package verification passed', flush=True)
+    if options.aab:
+        for phase in ('aab-first', 'aab-rebuild'):
+            start = time.monotonic()
+            subprocess.run([sys.executable, '-m', 'builder', 'build', str(project), '--aab'],
+                env=environment, check=True)
+            elapsed = time.monotonic() - start
+            artifacts = list((project / '.build').glob('*-debug.aab'))
+            if len(artifacts) != 1:
+                raise RuntimeError('Expected one CLI AAB, found ' + repr(artifacts))
+            artifact = artifacts[0]
+            subprocess.run([tools['jarsigner'], '-verify', str(artifact)], check=True)
+            from builder.aab import _find_bundletool
+            bundletool = _find_bundletool(SimpleNamespace(cache_dir=raw['cache-path']))
+            if not bundletool:
+                raise RuntimeError('CLI build did not leave a usable bundletool')
+            identity = subprocess.run([*bundletool, 'dump', 'manifest', '--bundle=' + str(artifact),
+                '--module=base', '--xpath=/manifest/@package'], check=True, capture_output=True, text=True)
+            if identity.stdout.strip() != 'com.example.nativevalidation':
+                raise RuntimeError('Native AAB package identity differs')
+            with zipfile.ZipFile(artifact) as archive:
+                if archive.testzip() or not archive.read('base/dex/classes.dex').startswith(b'dex\n'):
+                    raise RuntimeError('Invalid native-built AAB ZIP or DEX')
+                for name in ('base/manifest/AndroidManifest.xml', 'base/resources.pb', 'BundleConfig.pb'):
+                    if not archive.read(name):
+                        raise RuntimeError('Missing App Bundle metadata: ' + name)
+            observations.append({'phase': phase, 'seconds': elapsed, 'aab_bytes': artifact.stat().st_size})
+        print('REAL TERMUX AAB: CLI build/rebuild, bundletool validation and JAR signing passed', flush=True)
     print(json.dumps({'observations': observations, 'samples_per_phase': 1,
         'scope': 'Native smoke fixture; timings do not establish a performance comparison'}), flush=True)
