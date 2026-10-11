@@ -11,7 +11,7 @@ import yaml
 import requests
 
 from builder import __version__
-from builder.utils import color, log, variant_name, project_lock
+from builder.utils import color, log, variant_name, project_lock, find_bin
 
 
 def main():
@@ -191,6 +191,11 @@ def _build_locked(args, config):
 
     if build_aab and args.install:
         raise ValueError("AAB builds cannot be installed directly; build an APK without --aab to use --install")
+
+    if build_aab:
+        for tool in ("java", "jarsigner"):
+            if not find_bin(tool):
+                raise RuntimeError(f"{tool} not found — AAB requires a JDK; install: pkg install openjdk-17")
 
     if args.clean:
         _do_clean(config)

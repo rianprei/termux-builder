@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Faz build AAB recusar Java/jarsigner ausentes antes de clean, criação de saídas e resolução de dependências. Regressões exigem nenhum trabalho posterior; CLI real com PATH vazio retorna 1 sem apagar artefato anterior, e builds APK/AAB reais continuam aprovados no host.
+
 - Adiciona doctor --aab com diagnóstico local de Java, jarsigner e aapt2, preservando doctor padrão e check() sem argumentos. Testes cobrem cada ausência; CLI real aprova a toolchain do host e retorna 1 com PATH sem ferramentas. Não baixa nem verifica cache do bundletool.
 
 - Corrige falso sucesso do doctor quando o SDK tem diretórios de plataformas mas nenhum android.jar. Exige arquivo em uma plataforma ou fallback de sistema e contabiliza a ausência como problema; regressão usa SDK temporário sem JAR.

@@ -66,6 +66,21 @@ class AabBuildCommandTests(unittest.TestCase):
             patch("builder.aab.build_bundle", return_value="sample-debug.aab")
         )
 
+    def test_missing_aab_tools_fail_before_clean_or_dependency_resolution(self):
+        self.patch_build_bundle()
+        for missing in ('java', 'jarsigner'):
+            with self.subTest(missing=missing), \
+                 patch('builder.cli.find_bin', create=True, side_effect=lambda tool: None if tool == missing else '/fixture/' + tool), \
+                 patch('builder.cli._do_clean') as clean, \
+                 patch('builder.deps.resolve') as resolve:
+                args = self.build_args(aab=True)
+                args.clean = True
+                with self.assertRaisesRegex(RuntimeError, missing + ' not found'):
+                    cli._build(args)
+                clean.assert_not_called()
+                resolve.assert_not_called()
+                self.build_bundle.assert_not_called()
+
     def test_aab_flag_routes_build_to_bundle_pipeline(self):
         self.patch_build_bundle()
         cli._build(self.build_args(aab=True))
