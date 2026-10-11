@@ -5,9 +5,34 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from builder import ksp
+from tests.test_kapt_cache import forged_payload
 
 
 class KspCacheTests(unittest.TestCase):
+    def test_forged_cached_compiler_payload_is_rejected_offline(self):
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp) / 'ksp'
+            directory.mkdir()
+            path = directory / ('kotlin-compiler-embeddable-' + ksp._K1_KOTLIN_VERSION + '.jar')
+            original = forged_payload('org/jetbrains/kotlin/cli/jvm/K2JVMCompiler.class')
+            path.write_bytes(original)
+            with patch('builder.ksp.requests.get') as get, patch('builder.ksp.find_bin', return_value='java'):
+                with self.assertRaisesRegex(RuntimeError, 'actual ZIP payload'):
+                    ksp.setup_ksp_toolchain(SimpleNamespace(cache_dir=temp))
+                get.assert_not_called()
+            self.assertEqual(path.read_bytes(), original)
+
+    def test_forged_downloaded_plugin_is_not_published(self):
+        response = Mock(status_code=200)
+        response.iter_content.return_value = [forged_payload(ksp._PLUGIN_CLASS)]
+        with tempfile.TemporaryDirectory() as temp:
+            target = Path(temp) / 'plugin.jar'
+            with patch('builder.ksp.requests.get', return_value=response):
+                with self.assertRaisesRegex(RuntimeError, 'actual ZIP payload'):
+                    ksp._download(ksp._MAVEN_BASE + '/plugin.jar', str(target))
+            self.assertEqual(list(Path(temp).iterdir()), [])
+        response.close.assert_called_once()
+
     def test_corrupt_cached_compiler_is_rejected(self):
         with tempfile.TemporaryDirectory() as temp:
             directory = Path(temp) / 'ksp'

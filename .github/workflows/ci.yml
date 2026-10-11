@@ -148,6 +148,8 @@ jobs:
             --jacoco-cli "$junit_fixture/org.jacoco.cli-0.8.12-nodeps.jar"
       - name: Real CLI toolchain and corrupt SDK preflight
         run: python3 tests/integration/verify_aab_preflight.py
+      - name: Real JDK toolchain cache corruption regression
+        run: python3 tests/integration/verify_toolchain_cache.py
       - name: Real mixed Java Kotlin application build
         run: >-
           python3 tests/integration/verify_mixed_compile.py

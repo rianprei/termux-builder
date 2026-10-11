@@ -6,9 +6,10 @@ import tempfile
 from contextlib import contextmanager
 from urllib.parse import urljoin, urlsplit
 import zipfile
+import zlib
 import requests
 from builder.utils import ensure_dir, find_bin, log
-from builder.archives import check_zip_directory
+from builder.archives import check_zip_directory, verify_zip_payloads
 
 _MAVEN_BASE = "https://repo1.maven.org/maven2"
 _K1_VERSION = "1.9.24"
@@ -83,10 +84,8 @@ def _validate_toolchain_jar(path, required_class, label):
     if os.path.islink(path) or not os.path.isfile(path):
         raise RuntimeError(f"Invalid {label} cache path")
     try:
-        with _bounded_zip(path, 100000) as archive:
-            if sum(member.file_size for member in archive.infolist()) > 256 * 1024 * 1024:
-                raise RuntimeError(f"{label} exceeds validation limits")
-            if archive.testzip() is not None or required_class not in archive.namelist():
+        with _bounded_zip(path, 100000, 256 * 1024 * 1024) as archive:
+            if required_class not in archive.namelist():
                 raise RuntimeError(f"Invalid {label} JAR")
             with archive.open(required_class) as source:
                 header = source.read(10)
@@ -195,10 +194,14 @@ def setup_k1_compiler(config):
 
 
 @contextmanager
-def _bounded_zip(path, max_entries):
+def _bounded_zip(path, max_entries, max_expanded_bytes=512 * 1024 * 1024):
     with open(path, "rb") as source:
         check_zip_directory(source, max_entries, "Kotlin ZIP")
         with zipfile.ZipFile(source) as archive:
+            try:
+                verify_zip_payloads(source, archive, max_expanded_bytes, "Kotlin ZIP")
+            except (zipfile.BadZipFile, ValueError, EOFError, NotImplementedError, zlib.error):
+                raise RuntimeError("Invalid Kotlin ZIP payload; remove the cached artifact and retry") from None
             yield archive
 
 
@@ -223,7 +226,7 @@ def _k1_classpath(dist_dir):
                 members = archive.infolist()
                 if len(members) > 100000 or sum(member.file_size for member in members) > 512 * 1024 * 1024:
                     raise RuntimeError("Kotlin compiler JAR exceeds validation limits")
-                if archive.testzip() is not None or (name in required and required[name] not in archive.namelist()):
+                if name in required and required[name] not in archive.namelist():
                     raise RuntimeError("Kotlin compiler cache contains an invalid JAR")
             paths.append(path)
         return paths

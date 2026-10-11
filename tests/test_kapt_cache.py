@@ -1,8 +1,10 @@
 import io
+import struct
 import subprocess
 import tempfile
 import unittest
 import zipfile
+import zlib
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -10,11 +12,113 @@ from unittest.mock import Mock, patch
 from builder import kapt
 
 
-def jar_bytes(entry, content=b"class"):
+def jar_bytes(entry, content=b"class", compression=zipfile.ZIP_STORED):
     out = io.BytesIO()
-    with zipfile.ZipFile(out, 'w') as archive:
+    with zipfile.ZipFile(out, 'w', compression=compression) as archive:
         archive.writestr(entry, content)
     return out.getvalue()
+
+
+def forged_payload(entry, compression=zipfile.ZIP_DEFLATED):
+    header = b'\xca\xfe\xba\xbe\x00\x00\x00\x34\x00\x02'
+    data = bytearray(jar_bytes(entry, header + b'hidden payload' * 32, compression))
+    central = data.index(b'PK\x01\x02')
+    struct.pack_into('<I', data, 14, zlib.crc32(header))
+    struct.pack_into('<I', data, 22, len(header))
+    struct.pack_into('<I', data, central + 16, zlib.crc32(header))
+    struct.pack_into('<I', data, central + 24, len(header))
+    return bytes(data)
+
+
+def replace_compressed_payload(data, payload):
+    data = bytearray(data)
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        entry = archive.infolist()[0]
+    start = 30 + len(entry.filename.encode()) + len(entry.extra)
+    central = start + entry.compress_size
+    data[start:central] = payload
+    shift = len(payload) - entry.compress_size
+    struct.pack_into('<I', data, 18, len(payload))
+    struct.pack_into('<I', data, central + shift + 20, len(payload))
+    end = data.rfind(b'PK\x05\x06')
+    struct.pack_into('<I', data, end + 16, central + shift)
+    return bytes(data)
+
+
+class ToolchainZipTests(unittest.TestCase):
+    entry = 'org/jetbrains/kotlin/kapt3/Kapt3ComponentRegistrar.class'
+    content = b'\xca\xfe\xba\xbe\x00\x00\x00\x34\x00\x02' + b'payload' * 1024
+
+    def test_incomplete_or_trailing_deflate_stream_is_rejected(self):
+        original = jar_bytes(self.entry, self.content, zipfile.ZIP_DEFLATED)
+        with zipfile.ZipFile(io.BytesIO(original)) as archive:
+            member = archive.infolist()[0]
+        start = 30 + len(self.entry)
+        compressed = original[start:start + member.compress_size]
+        for payload in (compressed[:-1], compressed + b'hidden'):
+            with self.subTest(payload_size=len(payload)), tempfile.TemporaryDirectory() as temp:
+                path = Path(temp) / 'plugin.jar'
+                path.write_bytes(replace_compressed_payload(original, payload))
+                with zipfile.ZipFile(path) as archive:
+                    self.assertIsNone(archive.testzip())
+                with self.assertRaisesRegex(RuntimeError, '(incomplete ZIP|trailing data)'):
+                    kapt._validate_toolchain_jar(path, self.entry, 'KAPT plugin')
+
+    def test_ambiguous_or_unsupported_entries_are_rejected(self):
+        for damage in ('duplicate', 'nul', 'encrypted', 'bzip2', 'crc'):
+            with self.subTest(damage=damage), tempfile.TemporaryDirectory() as temp:
+                data = jar_bytes(self.entry, self.content)
+                if damage == 'duplicate':
+                    import warnings
+                    output = io.BytesIO(data)
+                    with warnings.catch_warnings(), zipfile.ZipFile(output, 'a') as archive:
+                        warnings.simplefilter('ignore', UserWarning)
+                        archive.writestr(self.entry, self.content)
+                    data = output.getvalue()
+                elif damage == 'bzip2':
+                    data = jar_bytes(self.entry, self.content, zipfile.ZIP_BZIP2)
+                else:
+                    data = bytearray(data)
+                    central = data.index(b'PK\x01\x02')
+                    if damage == 'nul':
+                        data[30] = data[central + 46] = 0
+                    elif damage == 'encrypted':
+                        struct.pack_into('<H', data, 6, 1)
+                        struct.pack_into('<H', data, central + 8, 1)
+                    else:
+                        data[30 + len(self.entry) + 10] ^= 1
+                    data = bytes(data)
+                path = Path(temp) / 'plugin.jar'
+                path.write_bytes(data)
+                with self.assertRaises(RuntimeError):
+                    kapt._validate_toolchain_jar(path, self.entry, 'KAPT plugin')
+                self.assertEqual(path.read_bytes(), data)
+
+    def test_invalid_compressed_payload_has_controlled_diagnostic(self):
+        data = jar_bytes(self.entry, self.content, zipfile.ZIP_DEFLATED)
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / 'plugin.jar'
+            path.write_bytes(replace_compressed_payload(data, b'\x07'))
+            with self.assertRaisesRegex(RuntimeError, 'Invalid Kotlin ZIP payload') as caught:
+                kapt._validate_toolchain_jar(path, self.entry, 'KAPT plugin')
+            self.assertTrue(caught.exception.__suppress_context__)
+
+    def test_expanded_limit_is_checked_before_payload_read(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / 'plugin.jar'
+            path.write_bytes(jar_bytes(self.entry, self.content))
+            with patch('builder.kapt.zipfile.ZipFile.open', side_effect=AssertionError('unbounded payload read')):
+                with self.assertRaisesRegex(RuntimeError, 'expanded-size limits'):
+                    with kapt._bounded_zip(path, 100000, 10):
+                        pass
+
+    def test_valid_stored_and_deflated_payloads_cross_chunk_boundaries(self):
+        for compression in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED):
+            for size in (65535, 65536, 65537, 4 * 1024 * 1024):
+                with self.subTest(compression=compression, size=size), tempfile.TemporaryDirectory() as temp:
+                    path = Path(temp) / 'plugin.jar'
+                    path.write_bytes(jar_bytes(self.entry, self.content[:10] + b'x' * size, compression))
+                    kapt._validate_toolchain_jar(path, self.entry, 'KAPT plugin')
 
 
 def distribution(extra=None):
@@ -148,6 +252,31 @@ class KotlinDistributionTests(unittest.TestCase):
                     kapt.setup_k1_compiler(config)
                 get.assert_not_called()
 
+    def test_forged_cached_compiler_payload_is_rejected_offline(self):
+        with tempfile.TemporaryDirectory() as temp:
+            lib = Path(temp) / 'kapt' / ('kotlinc-' + kapt._K1_VERSION) / 'kotlinc/lib'
+            lib.mkdir(parents=True)
+            compiler = lib / 'kotlin-compiler.jar'
+            compiler.write_bytes(forged_payload('org/jetbrains/kotlin/cli/jvm/K2JVMCompiler.class'))
+            (lib / 'kotlin-stdlib.jar').write_bytes(jar_bytes('kotlin/Unit.class'))
+            before = compiler.read_bytes()
+            with patch('builder.kapt.requests.get') as get:
+                with self.assertRaisesRegex(RuntimeError, 'actual ZIP payload'):
+                    kapt.setup_k1_compiler(SimpleNamespace(cache_dir=temp))
+                get.assert_not_called()
+            self.assertEqual(compiler.read_bytes(), before)
+
+    def test_forged_distribution_payload_is_rejected_before_extraction(self):
+        data = forged_payload('kotlinc/lib/kotlin-compiler.jar')
+        with tempfile.TemporaryDirectory() as temp:
+            with patch('builder.kapt.requests.get', return_value=self.response(data)), patch(
+                'builder.kapt.zipfile.ZipFile.extractall'
+            ) as extract:
+                with self.assertRaisesRegex(RuntimeError, 'actual ZIP payload'):
+                    kapt.setup_k1_compiler(SimpleNamespace(cache_dir=temp))
+                extract.assert_not_called()
+            self.assertEqual(list((Path(temp) / 'kapt').iterdir()), [])
+
     def test_symlink_distribution_entry_is_rejected(self):
         import stat
         data = io.BytesIO(distribution())
@@ -211,6 +340,32 @@ class KotlinDistributionTests(unittest.TestCase):
 
 
 class KaptPluginTests(unittest.TestCase):
+    def test_forged_cached_plugin_payload_is_rejected_offline(self):
+        for compression in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED):
+            with self.subTest(compression=compression), tempfile.TemporaryDirectory() as temp:
+                directory = Path(temp) / 'kapt'
+                directory.mkdir()
+                path = directory / 'kapt-1.9.24.jar'
+                original = forged_payload('org/jetbrains/kotlin/kapt3/Kapt3ComponentRegistrar.class', compression)
+                path.write_bytes(original)
+                with zipfile.ZipFile(path) as archive:
+                    self.assertIsNone(archive.testzip())
+                with patch('builder.kapt.requests.get') as get:
+                    with self.assertRaisesRegex(RuntimeError, 'actual ZIP payload'):
+                        kapt.setup_kapt_plugin(SimpleNamespace(cache_dir=temp), '1.9.24')
+                    get.assert_not_called()
+                self.assertEqual(path.read_bytes(), original)
+
+    def test_forged_downloaded_plugin_is_not_published(self):
+        response = Mock(status_code=200)
+        response.iter_content.return_value = [forged_payload('org/jetbrains/kotlin/kapt3/Kapt3ComponentRegistrar.class')]
+        with tempfile.TemporaryDirectory() as temp:
+            with patch('builder.kapt.requests.get', return_value=response):
+                with self.assertRaisesRegex(RuntimeError, 'actual ZIP payload'):
+                    kapt.setup_kapt_plugin(SimpleNamespace(cache_dir=temp), '1.9.24')
+            self.assertEqual(list((Path(temp) / 'kapt').iterdir()), [])
+        response.close.assert_called_once()
+
     def test_corrupt_cached_plugin_is_rejected(self):
         with tempfile.TemporaryDirectory() as temp:
             directory = Path(temp) / 'kapt'

@@ -46,8 +46,18 @@ def check_zip_directory(source, max_entries, label):
 
 
 def verify_zip_payloads(source, archive, max_expanded_bytes, label):
+    entries = archive.infolist()
+    if len({entry.filename for entry in entries}) != len(entries):
+        raise RuntimeError(f"{label}: duplicate ZIP entries")
+    if any('\x00' in entry.orig_filename or entry.filename != entry.orig_filename for entry in entries):
+        raise RuntimeError(f"{label}: ambiguous ZIP entry names")
+    if any(entry.flag_bits & 0x41 or entry.compress_type not in
+           (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED) for entry in entries):
+        raise RuntimeError(f"{label}: encrypted or unsupported ZIP entries")
+    if sum(entry.file_size for entry in entries) > max_expanded_bytes:
+        raise RuntimeError(f"{label}: archive exceeds expanded-size limits")
     total = 0
-    for entry in archive.infolist():
+    for entry in entries:
         # Let ZipFile check names, local headers and overlapping entries.
         with archive.open(entry):
             pass
