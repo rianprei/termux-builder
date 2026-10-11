@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Valida bins como mapa de strings de executaveis nao vazias e sem NUL antes da resolucao de ferramentas, evitando falhas indiretas nos subprocessos.
+
 - Valida mapas na raiz de project.yml e na secao android; erros de sintaxe YAML informam localizacao sem reproduzir linhas que possam conter credenciais.
 
 - Exige booleanos YAML nas flags de AAB, desugar, R8, ViewBinding, Compose e splits, evitando selecao involuntaria de pipeline com strings como "false".

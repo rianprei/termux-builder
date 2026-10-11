@@ -294,6 +294,11 @@ class Config:
         self.android_jar = self._resolve_android_jar()
 
         bins = raw.get("bins", {})
+        if not isinstance(bins, dict):
+            raise ValueError("bins must be a mapping of tool names to executable paths")
+        if any(not isinstance(name, str) or not name.strip() or not isinstance(path, str)
+               or not path.strip() or '\x00' in path for name, path in bins.items()):
+            raise ValueError("bins must contain nonempty tool names and executable paths without NUL")
         self.bin_aapt2 = self._resolve_bin("aapt2", bins)
         self.bin_javac = self._resolve_bin("javac", bins)
         self.bin_kotlinc = self._resolve_bin("kotlinc", bins)

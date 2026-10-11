@@ -8,6 +8,16 @@ from builder.config import Config
 
 
 class NativeLibraryDiscoveryTests(unittest.TestCase):
+    def test_bins_requires_mapping_of_nonempty_executable_strings(self):
+        for value in (None, [], 'd8', {'d8': None}, {'d8': 1}, {'d8': ''}, {'d8': '  '}, {'d8': 'bad\x00path'}):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as tempdir:
+                with open(os.path.join(tempdir, 'AndroidManifest.xml'), 'w') as manifest:
+                    manifest.write('<manifest package="com.example.app"/>')
+                with open(os.path.join(tempdir, 'project.yml'), 'w') as project:
+                    json.dump({'android': {}, 'bins': value}, project)
+                with self.assertRaisesRegex(ValueError, 'bins'):
+                    Config(tempdir)
+
     def test_yaml_parse_error_does_not_expose_configuration_secrets(self):
         with tempfile.TemporaryDirectory() as tempdir:
             with open(os.path.join(tempdir, 'project.yml'), 'w') as project:
