@@ -209,3 +209,81 @@ public class Generator extends AbstractProcessor {
                 with self.assertRaises(ValueError):
                     getattr(compiler, "compile_" + language)(config)
                 self.assertEqual(sentinel.read_text(), "keep")
+
+
+class KotlinProcessorWiringTests(unittest.TestCase):
+    def test_kapt_receives_resolved_processor_paths(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            processor = root / 'processors/generator.jar'
+            processor.parent.mkdir()
+            processor.write_bytes(b'jar')
+            config = SimpleNamespace(
+                build_dir=temp, project_dir=temp, kotlin_classes_dir=str(root / 'kotlin'),
+                java_classes_dir=str(root / 'java'), find_kotlin_files=lambda: ['Main.kt'],
+                find_lib_jars=lambda: [], kapt_enabled=True, ksp_enabled=False,
+                annotation_processors=['processors/generator.jar'], bin_kotlinc='kotlinc', compose=False,
+            )
+            with patch('builder.compiler._resolve_android_jar', return_value='android.jar'), patch(
+                'builder.compiler._effective_java_version', return_value=8
+            ), patch('builder.kapt.resolve_kapt_toolchain', return_value=(['compiler'], 'kapt.jar')), patch('builder.compiler.run') as run:
+                compiler.compile_kotlin(config)
+            self.assertIn('plugin:org.jetbrains.kotlin.kapt3:apclasspath=' + str(processor), run.call_args_list[0].args[0])
+
+    def test_generated_java_is_resolved_by_kotlin_and_compiled(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            processor = root / 'processor.jar'
+            processor.write_bytes(b'jar')
+            config = SimpleNamespace(
+                build_dir=temp, project_dir=temp, kotlin_classes_dir=str(root / 'kotlin'),
+                java_classes_dir=str(root / 'java'), find_kotlin_files=lambda: ['Main.kt'],
+                find_lib_jars=lambda: [], kapt_enabled=True, ksp_enabled=False,
+                annotation_processors=['processor.jar'], bin_kotlinc='kotlinc', bin_javac='javac', compose=False,
+            )
+            generated = root / 'kapt/sources/Generated.java'
+            def execute(args):
+                if '-Xplugin=kapt.jar' in args:
+                    generated.write_text('public class Generated {}')
+            with patch('builder.compiler._resolve_android_jar', return_value='android.jar'), patch(
+                'builder.compiler._effective_java_version', return_value=8
+            ), patch('builder.kapt.resolve_kapt_toolchain', return_value=(['compiler'], 'kapt.jar')), patch(
+                'builder.compiler.run', side_effect=execute
+            ) as run, patch('builder.compiler._can_use_ecj', return_value=False):
+                compiler.compile_kotlin(config)
+            commands = [call.args[0] for call in run.call_args_list]
+            self.assertIn(str(generated), commands[1])
+            self.assertEqual(commands[2][0], 'javac')
+            self.assertIn(str(generated), commands[2])
+            self.assertIn(config.kotlin_classes_dir, commands[2][commands[2].index('-classpath') + 1])
+
+    def test_generated_java_rejects_external_output(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            build = root / 'build'
+            build.mkdir()
+            outside = root / 'outside'
+            outside.mkdir()
+            sentinel = outside / 'Keep.class'
+            sentinel.write_bytes(b'keep')
+            (build / 'java').symlink_to(outside, target_is_directory=True)
+            processor = root / 'processor.jar'
+            processor.write_bytes(b'jar')
+            config = SimpleNamespace(
+                build_dir=str(build), project_dir=temp, kotlin_classes_dir=str(build / 'kotlin'),
+                java_classes_dir=str(build / 'java'), find_kotlin_files=lambda: ['Main.kt'],
+                find_lib_jars=lambda: [], kapt_enabled=True, ksp_enabled=False,
+                annotation_processors=['processor.jar'], bin_kotlinc='kotlinc', bin_javac='javac', compose=False,
+            )
+            def execute(args):
+                if '-Xplugin=kapt.jar' in args:
+                    (build / 'kapt/sources/Generated.java').write_text('public class Generated {}')
+            with patch('builder.compiler._resolve_android_jar', return_value='android.jar'), patch(
+                'builder.compiler._effective_java_version', return_value=8
+            ), patch('builder.kapt.resolve_kapt_toolchain', return_value=(['compiler'], 'kapt.jar')), patch(
+                'builder.compiler.run', side_effect=execute
+            ), patch('builder.compiler._compile_java_javac') as javac:
+                with self.assertRaises(ValueError):
+                    compiler.compile_kotlin(config)
+            javac.assert_not_called()
+            self.assertEqual(sentinel.read_bytes(), b'keep')

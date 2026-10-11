@@ -54,6 +54,8 @@ jobs:
         run: pip install .
       - name: Unit and signing integration tests
         run: python3 -m unittest discover -s tests -v
+      - name: Real KAPT processor integration
+        run: python3 tests/integration/verify_kapt.py
       - name: Add Android build tools to PATH
         run: echo "$ANDROID_HOME/build-tools/35.0.0" >> "$GITHUB_PATH"
       - name: Build and inspect real APK and AAB artifacts

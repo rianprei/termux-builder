@@ -150,6 +150,7 @@ def compile_kotlin(config):
     jvm_target = "1.8" if java_ver == 8 else str(java_ver)
 
     all_kt_files = list(kt_files)
+    generated_java = []
 
     if getattr(config, "ksp_enabled", False):
         from builder.ksp import setup_ksp_toolchain
@@ -185,10 +186,14 @@ def compile_kotlin(config):
 
         from builder.utils import find_files as _ff2
         generated_kt = _ff2(ksp_gen, ".kt")
+        generated_java += _ff2(ksp_gen, ".java")
         all_kt_files = kt_files + generated_kt
         log.info("ksp: compiling %d file(s) including %d generated (phase 2/2)", len(all_kt_files), len(generated_kt))
 
     if getattr(config, "kapt_enabled", False):
+        processor_args = []
+        for processor in _resolve_processor_jars(config, config.annotation_processors):
+            processor_args += ["-P", f"plugin:org.jetbrains.kotlin.kapt3:apclasspath={processor}"]
         from builder.kapt import resolve_kapt_toolchain
         prefix, plugin_jar = resolve_kapt_toolchain(config)
         if not prefix:
@@ -219,16 +224,18 @@ def compile_kotlin(config):
             "-P", f"plugin:org.jetbrains.kotlin.kapt3:stubs={stubs_dir}",
             "-P", "plugin:org.jetbrains.kotlin.kapt3:aptMode=stubsAndApt",
             "-P", "plugin:org.jetbrains.kotlin.kapt3:correctErrorTypes=true",
-        ])
+        ] + processor_args)
 
         from builder.utils import find_files as _ff
         generated_kt = _ff(sources_dir, ".kt")
-        all_kt_files = kt_files + generated_kt
+        generated_java += _ff(sources_dir, ".java")
+        all_kt_files += generated_kt
         log.info("kapt: compiling %d file(s) including %d generated (phase 2/2)", len(all_kt_files), len(generated_kt))
 
     args = [
         config.bin_kotlinc,
         *all_kt_files,
+        *generated_java,
         "-classpath", classpath,
         "-d", config.kotlin_classes_dir,
         "-jvm-target", jvm_target,
@@ -243,6 +250,15 @@ def compile_kotlin(config):
             log.info("Compose compiler plugin: %s", compose_jar)
 
     run(args)
+
+    if generated_java:
+        ensure_output_path(config.build_dir, config.java_classes_dir, "Generated Java classes")
+        ensure_dir(config.java_classes_dir)
+        generated_classpath = os.pathsep.join([classpath, config.kotlin_classes_dir])
+        if _can_use_ecj() and shutil.which(config.bin_javac) is None:
+            _compile_java_ecj(generated_java, generated_classpath, java_ver, config.java_classes_dir)
+        else:
+            _compile_java_javac(config, generated_java, generated_classpath, java_ver)
 
 
 def _find_compose_compiler(config):
