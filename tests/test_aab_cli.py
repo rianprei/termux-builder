@@ -217,6 +217,19 @@ class AabBuildCommandTests(unittest.TestCase):
                         _verify_aab(aab_path, ['bundletool'])
                     execute.assert_not_called()
 
+    def test_aab_verification_refuses_empty_base_manifest(self):
+        from builder.aab import _verify_aab
+        aab_path = os.path.join(self.tempdir.name, 'empty-manifest.aab')
+        with zipfile.ZipFile(aab_path, 'w') as bundle:
+            bundle.writestr('BundleConfig.pb', 'fixture')
+            bundle.writestr('base/resources.pb', 'fixture')
+            bundle.writestr('base/manifest/AndroidManifest.xml', b'')
+        with patch('builder.aab.run') as execute:
+            execute.return_value.stdout = 'jar verified.'
+            with self.assertRaisesRegex(RuntimeError, 'AAB.*empty.*manifest'):
+                _verify_aab(aab_path, ['bundletool'])
+            execute.assert_not_called()
+
     def test_aab_verification_requires_structure_and_valid_signature(self):
         from builder.aab import _verify_aab
 

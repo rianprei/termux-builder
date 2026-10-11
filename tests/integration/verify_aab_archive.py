@@ -28,4 +28,16 @@ with tempfile.TemporaryDirectory(prefix='termux-builder-aab-negative-') as temp:
                 raise RuntimeError('Expected archive gate rejection before external verification') from error
         else:
             raise RuntimeError('Unsafe AAB mutation was accepted')
-print('REAL AAB ARCHIVE: duplicate and unsafe entries rejected')
+    empty_manifest = Path(temp) / 'empty-manifest.aab'
+    with zipfile.ZipFile(source) as original, zipfile.ZipFile(empty_manifest, 'w') as altered:
+        for member in original.infolist():
+            data = b'' if member.filename == 'base/manifest/AndroidManifest.xml' else original.read(member)
+            altered.writestr(member, data)
+    try:
+        _verify_aab(str(empty_manifest))
+    except RuntimeError as error:
+        if 'empty base manifest' not in str(error):
+            raise RuntimeError('Expected empty manifest rejection before signature verification') from error
+    else:
+        raise RuntimeError('Empty AAB manifest was accepted')
+print('REAL AAB ARCHIVE: duplicate/unsafe entries and empty base manifest rejected')

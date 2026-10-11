@@ -256,6 +256,9 @@ def _verify_aab(aab_path, bundletool_cmd=None):
                         or "\\" in member.filename or stat.S_ISLNK(member.external_attr >> 16)):
                     raise RuntimeError("AAB contains unsafe archive entries")
             present_entries = set(names)
+            manifest = "base/manifest/AndroidManifest.xml"
+            if manifest in present_entries and bundle.getinfo(manifest).file_size == 0:
+                raise RuntimeError("AAB contains an empty base manifest")
     except (OSError, zipfile.BadZipFile) as e:
         raise RuntimeError(f"AAB is not a readable ZIP archive: {e}")
 

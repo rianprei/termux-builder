@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Recusa manifesto base vazio no AAB antes de ferramentas externas. Regressão falhou antes da correção; fixture de mutações também esvazia o manifesto de uma cópia do AAB real e exige diagnóstico específico. Build CLI assinado/validado no host permanece aprovado.
+
 - Exercita o gate de ZIP em AAB real produzido pela CLI: build/assinatura/bundletool passaram no host JDK 21/API 36/Build Tools 37.0.0; fixture reutilizável altera somente cópias temporárias para exigir rejeição de duplicatas e caminhos inseguros. Conectada ao AAB produzido pela CI.
 
 - Recusa AAB com entradas ZIP duplicadas, paths absolutos/traversal/componentes vazios, barras invertidas ou symlinks antes do bundletool/jarsigner. Regressões exigem rejeição antes de subprocessos; integração com assinatura JAR real permanece aprovada.
