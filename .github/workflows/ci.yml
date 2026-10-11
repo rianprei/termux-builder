@@ -146,7 +146,7 @@ jobs:
             --kotlin-stdlib "$kotlin_stdlib" \
             --jacoco-agent "$junit_fixture/org.jacoco.agent-0.8.12-runtime.jar" \
             --jacoco-cli "$junit_fixture/org.jacoco.cli-0.8.12-nodeps.jar"
-      - name: Real CLI AAB missing-tool preflight
+      - name: Real CLI toolchain and corrupt SDK preflight
         run: python3 tests/integration/verify_aab_preflight.py
       - name: Real mixed Java Kotlin application build
         run: >-

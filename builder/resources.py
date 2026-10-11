@@ -2,7 +2,10 @@ import hashlib
 import os
 import shutil
 import xml.etree.ElementTree as ET
+import zipfile
+import zlib
 from builder.utils import ensure_output_path, run, ensure_dir, find_files, log
+from builder.archives import check_zip_directory, verify_zip_payloads
 
 # System android.jar (Termux native package)
 _SYSTEM_ANDROID_JAR = "/data/data/com.termux/files/usr/share/java/android.jar"
@@ -11,16 +14,46 @@ _SYSTEM_ANDROID_JAR = "/data/data/com.termux/files/usr/share/java/android.jar"
 def _resolve_android_jar(config):
     # config.py already resolves config.android_jar to the system jar when
     # no SDK is configured, so that path is checked once here (no dead branch).
-    if os.path.isfile(config.android_jar):
-        if config.android_jar == _SYSTEM_ANDROID_JAR:
-            log.warning(
-                "Using system android.jar — aapt2 link will fail with themes. "
-                "Run: termux-builder setup"
-            )
-        return config.android_jar
-    raise FileNotFoundError(
-        "android.jar not found. Run: termux-builder setup"
-    )
+    if not os.path.isfile(config.android_jar):
+        raise FileNotFoundError("android.jar not found. Run: termux-builder setup")
+    failure = "android.jar verification failed: "
+    repair = "; restore the selected SDK platform's android.jar from its trusted source"
+    try:
+        with open(config.android_jar, "rb") as sdk:
+            if os.fstat(sdk.fileno()).st_size > 128 * 1024**2:
+                raise RuntimeError(failure + "archive exceeds 128 MiB")
+            check_zip_directory(sdk, 60000, "android.jar verification failed")
+            with zipfile.ZipFile(sdk) as archive:
+                entries = archive.infolist()
+                if sum(entry.file_size for entry in entries) > 1024**3:
+                    raise RuntimeError(failure + "archive exceeds expanded-size limits")
+                if len({entry.filename for entry in entries}) != len(entries):
+                    raise RuntimeError(failure + "duplicate ZIP entries")
+                if any("\x00" in entry.orig_filename or entry.filename != entry.orig_filename
+                       for entry in entries):
+                    raise RuntimeError(failure + "ambiguous ZIP entry names")
+                if any(entry.flag_bits & 0x41 or entry.compress_type not in
+                       (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED) for entry in entries):
+                    raise RuntimeError(failure + "encrypted or unsupported ZIP entries")
+                if not any(entry.filename == "android/app/Activity.class" and entry.file_size > 0
+                           for entry in entries):
+                    raise RuntimeError(failure + "missing Android framework class")
+                verify_zip_payloads(sdk, archive, 1024**3, "android.jar verification failed")
+    except RuntimeError as error:
+        detail = str(error)
+        if not detail.startswith(failure):
+            detail = failure + "unsupported ZIP data"
+        raise RuntimeError(detail + repair) from None
+    except OSError:
+        raise RuntimeError(failure + "cannot read SDK archive; check its path and permissions") from None
+    except (zipfile.BadZipFile, zipfile.LargeZipFile, ValueError, EOFError, NotImplementedError, zlib.error):
+        raise RuntimeError(failure + "invalid ZIP data or CRC" + repair) from None
+    if config.android_jar == _SYSTEM_ANDROID_JAR:
+        log.warning(
+            "Using system android.jar — aapt2 link will fail with themes. "
+            "Run: termux-builder setup"
+        )
+    return config.android_jar
 
 
 def _has_aapt2(config):

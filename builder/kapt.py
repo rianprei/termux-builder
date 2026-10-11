@@ -2,12 +2,13 @@ import os
 import re
 import subprocess
 import stat
-import struct
 import tempfile
+from contextlib import contextmanager
 from urllib.parse import urljoin, urlsplit
 import zipfile
 import requests
 from builder.utils import ensure_dir, find_bin, log
+from builder.archives import check_zip_directory
 
 _MAVEN_BASE = "https://repo1.maven.org/maven2"
 _K1_VERSION = "1.9.24"
@@ -193,42 +194,12 @@ def setup_k1_compiler(config):
     return _k1_classpath(dist_dir)
 
 
+@contextmanager
 def _bounded_zip(path, max_entries):
     with open(path, "rb") as source:
-        source.seek(0, os.SEEK_END)
-        size = source.tell()
-        source.seek(max(0, size - 65557))
-        tail = source.read()
-    end = tail.rfind(b"PK\x05\x06")
-    while end >= 0:
-        if end + 22 <= len(tail):
-            record = struct.unpack_from("<4s4H2IH", tail, end)
-            if end + 22 + record[7] == len(tail):
-                break
-        end = tail.rfind(b"PK\x05\x06", 0, end)
-    if end < 0:
-        raise RuntimeError("Invalid Kotlin ZIP end record")
-    if (record[1] or record[2] or record[3] != record[4] or
-            record[4] == 65535 or record[4] > max_entries or
-            record[5] > 16 * 1024 * 1024 or
-            record[6] + record[5] != size - len(tail) + end):
-        raise RuntimeError("Kotlin ZIP exceeds directory limits or uses unsupported ZIP64/multipart format")
-    with open(path, "rb") as source:
-        source.seek(record[6])
-        directory_end = record[6] + record[5]
-        count = 0
-        while source.tell() < directory_end:
-            header = source.read(46)
-            if len(header) != 46 or header[:4] != b"PK\x01\x02":
-                raise RuntimeError("Invalid Kotlin ZIP directory entry")
-            fields = struct.unpack("<4s6H3I5H2I", header)
-            source.seek(sum(fields[10:13]), os.SEEK_CUR)
-            count += 1
-            if count > max_entries or source.tell() > directory_end:
-                raise RuntimeError("Kotlin ZIP exceeds directory limits")
-        if count != record[4]:
-            raise RuntimeError("Kotlin ZIP entry count mismatch")
-    return zipfile.ZipFile(path)
+        check_zip_directory(source, max_entries, "Kotlin ZIP")
+        with zipfile.ZipFile(source) as archive:
+            yield archive
 
 
 def _k1_classpath(dist_dir):

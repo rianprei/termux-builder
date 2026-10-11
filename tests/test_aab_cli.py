@@ -33,7 +33,8 @@ class AabBuildCommandTests(unittest.TestCase):
             abi_splits=False,
             android_jar=os.path.join(self.tempdir.name, 'android.jar'),
         )
-        Path(self.config.android_jar).write_bytes(b'unit toolchain fixture')
+        with zipfile.ZipFile(self.config.android_jar, 'w') as archive:
+            archive.writestr('android/app/Activity.class', b'unit class fixture')
         self.addCleanup(self.tempdir.cleanup)
         self.patches = ExitStack()
         self.addCleanup(self.patches.close)
@@ -110,6 +111,116 @@ class AabBuildCommandTests(unittest.TestCase):
                     cli._build(args)
                 clean.assert_not_called()
                 resolve.assert_not_called()
+
+    def test_invalid_android_jar_fails_before_clean_or_dependency_resolution(self):
+        self.patch_build_bundle()
+        jar = Path(self.config.android_jar)
+        for damage in ('not-zip', 'empty', 'missing-framework', 'crc', 'duplicate', 'compression',
+                       'oversized', 'hidden-payload', 'encrypted', 'empty-class', 'null-name'):
+            for aab in (False, True):
+                with self.subTest(damage=damage, aab=aab):
+                    with zipfile.ZipFile(jar, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+                        if damage != 'empty':
+                            name = 'other.class' if damage == 'missing-framework' else 'android/app/Activity.class'
+                            if damage == 'null-name':
+                                name += 'X'
+                            archive.writestr(name, b'' if damage == 'empty-class' else b'unit class fixture')
+                            if damage == 'duplicate':
+                                archive.writestr(name, b'duplicate class fixture')
+                    data = bytearray(jar.read_bytes())
+                    if damage == 'not-zip':
+                        data = b'invalid SDK fixture'
+                    elif damage == 'crc':
+                        data[30 + len('android/app/Activity.class')] ^= 1
+                    elif damage == 'null-name':
+                        data = data.replace(b'android/app/Activity.classX', b'android/app/Activity.class\x00')
+                    elif damage == 'hidden-payload':
+                        checksum = zlib.crc32(b'unit')
+                        central = data.index(b'PK\x01\x02')
+                        struct.pack_into('<I', data, 14, checksum)
+                        struct.pack_into('<I', data, 22, 4)
+                        struct.pack_into('<I', data, central + 16, checksum)
+                        struct.pack_into('<I', data, central + 24, 4)
+                        jar.write_bytes(data)
+                        with zipfile.ZipFile(jar) as archive:
+                            self.assertIsNone(archive.testzip())
+                    elif damage == 'encrypted':
+                        struct.pack_into('<H', data, 6, 1)
+                        struct.pack_into('<H', data, data.index(b'PK\x01\x02') + 8, 1)
+                    elif damage == 'compression':
+                        struct.pack_into('<H', data, 8, zipfile.ZIP_BZIP2)
+                        struct.pack_into('<H', data, data.index(b'PK\x01\x02') + 10, zipfile.ZIP_BZIP2)
+                    elif damage == 'oversized':
+                        struct.pack_into('<I', data, data.index(b'PK\x01\x02') + 24, 1024**3 + 1)
+                    jar.write_bytes(data)
+                    args = self.build_args(aab=aab)
+                    args.clean = True
+                    with patch('builder.cli._do_clean') as clean, patch('builder.deps.resolve') as resolve:
+                        with self.assertRaisesRegex(RuntimeError, 'android.jar verification failed'):
+                            cli._build(args)
+                        clean.assert_not_called()
+                        resolve.assert_not_called()
+
+    def test_sdk_zip_directory_is_bounded_before_zipfile_parsing(self):
+        from builder.resources import _resolve_android_jar
+        with zipfile.ZipFile(self.config.android_jar, 'w') as archive:
+            archive.writestr('android/app/Activity.class', b'class fixture')
+            for index in range(65535):
+                archive.writestr(str(index), b'')
+        with patch('zipfile.ZipFile', side_effect=AssertionError('ZIP parsed before directory bounds')):
+            with self.assertRaisesRegex(RuntimeError, 'android.jar verification failed'):
+                _resolve_android_jar(self.config)
+
+    def test_sdk_payload_verification_accepts_stored_and_deflated_chunks(self):
+        from builder.resources import _resolve_android_jar
+        for compression in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED):
+            for size in (1, 65535, 65536, 65537, 4 * 1024**2):
+                with self.subTest(compression=compression, size=size):
+                    with zipfile.ZipFile(self.config.android_jar, 'w', compression=compression) as archive:
+                        archive.writestr('android/app/Activity.class', b'x' * size)
+                        archive.writestr('android/app/', b'')
+                    self.assertEqual(_resolve_android_jar(self.config), self.config.android_jar)
+
+    def test_sdk_zip_end_record_matches_zipfile_parser(self):
+        from builder.resources import _resolve_android_jar
+        for damage in ('embedded-end-record', 'zip64-locator'):
+            with self.subTest(damage=damage):
+                with zipfile.ZipFile(self.config.android_jar, 'w') as archive:
+                    member = zipfile.ZipInfo('android/app/Activity.class')
+                    if damage == 'zip64-locator':
+                        member.comment = struct.pack('<4sQ2H2L4Q', b'PK\x06\x06', 44, 45, 45,
+                                                     0, 0, 0, 0, 0, 0)
+                        member.comment += struct.pack('<4sLQL', b'PK\x06\x07', 0, 0, 1)
+                    archive.writestr(member, b'class fixture')
+                    if damage == 'embedded-end-record':
+                        archive.comment = struct.pack('<4s4H2IH', b'PK\x05\x06', 0, 0,
+                                                      0, 0, 0, 0, 1) + b'xx'
+                with patch('zipfile.ZipFile', side_effect=AssertionError('ZIP parsed ambiguous end record')):
+                    with self.assertRaisesRegex(RuntimeError, 'android.jar verification failed'):
+                        _resolve_android_jar(self.config)
+
+    def test_sdk_zip_end_record_fast_path_ignores_magic_in_numeric_fields(self):
+        from builder.resources import _resolve_android_jar
+        jar = Path(self.config.android_jar)
+        with zipfile.ZipFile(jar, 'w') as archive:
+            archive.writestr('android/app/Activity.class', b'class fixture')
+            for index in range(19279):
+                archive.writestr(str(index), b'')
+        data = jar.read_bytes()
+        directory_size = struct.unpack_from('<I', data, len(data) - 10)[0]
+        padding = (1541 - directory_size) % 65536
+        with zipfile.ZipFile(jar) as archive:
+            entries = [(member, archive.read(member)) for member in archive.infolist()]
+        with zipfile.ZipFile(jar, 'w') as archive:
+            entries[0][0].comment = b'x' * padding
+            for member, content in entries:
+                archive.writestr(member, content)
+        data = jar.read_bytes()
+        self.assertEqual(data[-12:-8], b'PK\x05\x06')
+        with zipfile.ZipFile(jar) as archive:
+            self.assertEqual(len(archive.infolist()), 19280)
+            self.assertIsNone(archive.testzip())
+        self.assertEqual(_resolve_android_jar(self.config), self.config.android_jar)
 
     def test_unusable_aapt2_fails_before_aab_clean(self):
         self.patch_build_bundle()
