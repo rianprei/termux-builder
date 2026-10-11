@@ -1,0 +1,200 @@
+{
+  "environment": {
+    "os": "Linux-7.2.9-2-cachyos-x86_64-with-glibc2.44",
+    "architecture": "x86_64",
+    "java": "OpenJDK21",
+    "gradle": "9.7.1",
+    "agp": "9.4.1",
+    "sdk": "android-36",
+    "build_tools": "37.0.0",
+    "java_version_output": "openjdk version \"21.0.12.1\" 2026-08-18\nOpenJDK Runtime Environment (build 21.0.12.1+1)\nOpenJDK 64-Bit Server VM (build 21.0.12.1+1, mixed mode, sharing)\n",
+    "sampler": "psutil 7.2.2"
+  },
+  "command": [
+    "/usr/bin/python3",
+    "-m",
+    "builder",
+    "gradle-build",
+    "/tmp/tb-gradle-native-spike-2ksufie9",
+    "--gradle",
+    "/home/rianprei/.gradle/wrapper/dists/gradle-9.7.1-bin/1w1c7tv4s851m17nbqdsro2tv/gradle-9.7.1/bin/gradle",
+    "--offline",
+    "--aapt2",
+    "/home/rianprei/Android/Sdk/build-tools/37.0.0/aapt2"
+  ],
+  "samples": [
+    {
+      "seconds": 10.4939,
+      "sampled_process_tree_rss_bytes": 886255616,
+      "format": "apk",
+      "phase": "clean_outputs",
+      "sample": 1,
+      "artifact_bytes": 872390,
+      "artifact_sha256": "72612ebaf850debb564ea2de62ad46697d42a01ebbbcb4d0897a85acb6646b4e"
+    },
+    {
+      "seconds": 7.7137,
+      "sampled_process_tree_rss_bytes": 706404352,
+      "format": "apk",
+      "phase": "rebuild",
+      "sample": 1,
+      "artifact_bytes": 872390,
+      "artifact_sha256": "72612ebaf850debb564ea2de62ad46697d42a01ebbbcb4d0897a85acb6646b4e"
+    },
+    {
+      "seconds": 10.5186,
+      "sampled_process_tree_rss_bytes": 912748544,
+      "format": "apk",
+      "phase": "clean_outputs",
+      "sample": 2,
+      "artifact_bytes": 872390,
+      "artifact_sha256": "72612ebaf850debb564ea2de62ad46697d42a01ebbbcb4d0897a85acb6646b4e"
+    },
+    {
+      "seconds": 7.7306,
+      "sampled_process_tree_rss_bytes": 712704000,
+      "format": "apk",
+      "phase": "rebuild",
+      "sample": 2,
+      "artifact_bytes": 872390,
+      "artifact_sha256": "72612ebaf850debb564ea2de62ad46697d42a01ebbbcb4d0897a85acb6646b4e"
+    },
+    {
+      "seconds": 10.5202,
+      "sampled_process_tree_rss_bytes": 907083776,
+      "format": "apk",
+      "phase": "clean_outputs",
+      "sample": 3,
+      "artifact_bytes": 872390,
+      "artifact_sha256": "72612ebaf850debb564ea2de62ad46697d42a01ebbbcb4d0897a85acb6646b4e"
+    },
+    {
+      "seconds": 7.8794,
+      "sampled_process_tree_rss_bytes": 707051520,
+      "format": "apk",
+      "phase": "rebuild",
+      "sample": 3,
+      "artifact_bytes": 872390,
+      "artifact_sha256": "72612ebaf850debb564ea2de62ad46697d42a01ebbbcb4d0897a85acb6646b4e"
+    },
+    {
+      "seconds": 11.8014,
+      "sampled_process_tree_rss_bytes": 932511744,
+      "format": "aab",
+      "phase": "clean_outputs",
+      "sample": 1,
+      "artifact_bytes": 778067,
+      "artifact_sha256": "fcc7b55bd309b14c547de107e42027cc3b54abcd13218d291c0856d276797e41"
+    },
+    {
+      "seconds": 8.8376,
+      "sampled_process_tree_rss_bytes": 696598528,
+      "format": "aab",
+      "phase": "rebuild",
+      "sample": 1,
+      "artifact_bytes": 778067,
+      "artifact_sha256": "fcc7b55bd309b14c547de107e42027cc3b54abcd13218d291c0856d276797e41"
+    },
+    {
+      "seconds": 11.8879,
+      "sampled_process_tree_rss_bytes": 916234240,
+      "format": "aab",
+      "phase": "clean_outputs",
+      "sample": 2,
+      "artifact_bytes": 778067,
+      "artifact_sha256": "fcc7b55bd309b14c547de107e42027cc3b54abcd13218d291c0856d276797e41"
+    },
+    {
+      "seconds": 9.0209,
+      "sampled_process_tree_rss_bytes": 712290304,
+      "format": "aab",
+      "phase": "rebuild",
+      "sample": 2,
+      "artifact_bytes": 778067,
+      "artifact_sha256": "fcc7b55bd309b14c547de107e42027cc3b54abcd13218d291c0856d276797e41"
+    },
+    {
+      "seconds": 12.0654,
+      "sampled_process_tree_rss_bytes": 918462464,
+      "format": "aab",
+      "phase": "clean_outputs",
+      "sample": 3,
+      "artifact_bytes": 778067,
+      "artifact_sha256": "fcc7b55bd309b14c547de107e42027cc3b54abcd13218d291c0856d276797e41"
+    },
+    {
+      "seconds": 8.8863,
+      "sampled_process_tree_rss_bytes": 704581632,
+      "format": "aab",
+      "phase": "rebuild",
+      "sample": 3,
+      "artifact_bytes": 778067,
+      "artifact_sha256": "fcc7b55bd309b14c547de107e42027cc3b54abcd13218d291c0856d276797e41"
+    }
+  ],
+  "method": "3 interleaved clean-output/rebuild pairs per format; dependency/compiled-script/filesystem caches warm; Gradle configuration cache explicitly disabled; no sources changed; verification included in wall time; cleanup outside measured time. RSS sum sampled every20ms including descendants; shared pages counted repeatedly and short peaks may be missed. Same project, input bytes, commands, JDK/SDK/Gradle/AGP and measurement code as 4279730 baseline, after process lifecycle correction at 4b6d88a. No other Gradle builds initiated by this validation on the host. Ambient load and filesystem cache state were not controlled; prior baseline had an active host adb controller for validation on a separate device. Three samples per cell do not establish causal acceleration or device performance.",
+  "source_sha256": {
+    "utils.py": "a0eb10588bce25a1589d02d4a0ceeb603102d2d6178fba4ec43218fa5c6c8bbb",
+    "gradle.py": "2903a9467e607f3eb14811224785939f58fd6079854cee1396f575c42e7727ff",
+    "gradle_init.gradle": "bbe2643df985dee1dd17e253328692184dde6818ac582bcc2aebe62c05b8f7f7",
+    "aab.py": "c745a8ea289c9cd8a06a7b34e5b9fd44881b6517f92d3da63dfa81a75b1efbf5",
+    "AabSignatureVerifier.java": "2cb34063a9021393aad96f63207bd35b78591b33304b7bd974e886fc39aef832"
+  },
+  "source_commit": "4b6d88a6087649e9eed7e7ec616c4b6888443221",
+  "input_files": {
+    "app/build.gradle.kts": "import com.android.build.api.dsl.ApplicationExtension\napply(plugin = \"com.android.application\")\nconfigure<ApplicationExtension> {\n    namespace = \"fixture.gradle\"\n    compileSdk = 36\n    buildToolsVersion = \"37.0.0\"\n    defaultConfig {\n        applicationId = \"fixture.gradle\"\n        minSdk = 26\n        targetSdk = 36\n        versionCode = 1\n        versionName = \"1.0\"\n    }\n    compileOptions {\n        sourceCompatibility = JavaVersion.VERSION_1_8\n        targetCompatibility = JavaVersion.VERSION_1_8\n    }\n}\n",
+    "app/src/main/AndroidManifest.xml": "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">\n  <application android:label=\"@string/app_name\" android:theme=\"@android:style/Theme.Material.Light.NoActionBar\">\n    <activity android:name=\".MainActivity\" android:exported=\"true\">\n      <intent-filter><action android:name=\"android.intent.action.MAIN\"/><category android:name=\"android.intent.category.LAUNCHER\"/></intent-filter>\n    </activity>\n  </application>\n</manifest>\n",
+    "app/src/main/java/fixture/gradle/MainActivity.java": "package fixture.gradle;\npublic class MainActivity extends android.app.Activity {\n    @Override public void onCreate(android.os.Bundle state) {\n        super.onCreate(state);\n        android.widget.TextView text = new android.widget.TextView(this);\n        text.setText(\"Gradle Native\");\n        setContentView(text);\n    }\n}\n",
+    "app/src/main/res/values/strings.xml": "<resources><string name=\"app_name\">Gradle Native</string></resources>\n",
+    "build.gradle.kts": "buildscript {\n    repositories { google(); mavenCentral() }\n    dependencies { classpath(\"com.android.tools.build:gradle:9.4.1\") }\n}\n",
+    "gradle.properties": null,
+    "settings.gradle.kts": "pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }\ndependencyResolutionManagement { repositories { google(); mavenCentral() } }\nrootProject.name = \"native-gradle-spike\"\ninclude(\":app\")\n",
+    "local.properties": "sdk.dir=/home/rianprei/Android/Sdk\n"
+  },
+  "recorded_at_utc": "2026-10-11T22:44:11.165146+00:00",
+  "clean_command": [
+    "/bin/sh",
+    "/home/rianprei/.gradle/wrapper/dists/gradle-9.7.1-bin/1w1c7tv4s851m17nbqdsro2tv/gradle-9.7.1/bin/gradle",
+    "--offline",
+    "--no-daemon",
+    "--no-watch-fs",
+    "--no-configuration-cache",
+    "--console=plain",
+    "--max-workers=2",
+    ":app:clean"
+  ],
+  "format_commands": {
+    "apk": [
+      "/usr/bin/python3",
+      "-m",
+      "builder",
+      "gradle-build",
+      "/tmp/tb-gradle-native-spike-2ksufie9",
+      "--gradle",
+      "/home/rianprei/.gradle/wrapper/dists/gradle-9.7.1-bin/1w1c7tv4s851m17nbqdsro2tv/gradle-9.7.1/bin/gradle",
+      "--offline",
+      "--aapt2",
+      "/home/rianprei/Android/Sdk/build-tools/37.0.0/aapt2",
+      "--apksigner",
+      "/home/rianprei/Android/Sdk/build-tools/37.0.0/apksigner"
+    ],
+    "aab": [
+      "/usr/bin/python3",
+      "-m",
+      "builder",
+      "gradle-build",
+      "/tmp/tb-gradle-native-spike-2ksufie9",
+      "--gradle",
+      "/home/rianprei/.gradle/wrapper/dists/gradle-9.7.1-bin/1w1c7tv4s851m17nbqdsro2tv/gradle-9.7.1/bin/gradle",
+      "--offline",
+      "--aapt2",
+      "/home/rianprei/Android/Sdk/build-tools/37.0.0/aapt2",
+      "--aab",
+      "--bundletool-jar",
+      "/tmp/termux-builder-native-ksp-fixture-cache/bundletool/bundletool-all-1.18.3.jar"
+    ]
+  },
+  "clean_outputs_check": "app/build absent after each :app:clean; 6/6 checks passed",
+  "artifact_check": "CLI validators passed; ZIP CRC and non-META-INF entry SHA256 equal for each format across all6 samples; full APK/AAB hashes also matched prior baseline",
+  "compared_to": "gradle-baseline-2026-10-11.json"
+}

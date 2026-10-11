@@ -1,4 +1,14 @@
-# Custo do CRC no ZIP AAB
+# Medições locais
+
+## Adaptador Gradle/AGP
+
+[gradle-baseline-2026-10-11.json](gradle-baseline-2026-10-11.json) registra 12 execuções verificadas de `gradle-build` na revisão `4279730`: três pares de saídas limpas/rebuild por formato, com dependências, compilação de scripts e cache de filesystem aquecidos. O cache de configuração do Gradle estava desativado. Inclui comandos, versões, fontes da fixture, hashes e amostras de tempo/RSS/tamanho. `:app:clean` e a ausência de `app/build` foram verificados antes de cada primeiro build; limpeza não foi cronometrada. O payload fora de `META-INF/` permaneceu igual nas seis execuções de cada formato.
+
+[gradle-after-cancellation-2026-10-11.json](gradle-after-cancellation-2026-10-11.json) repete as 12 execuções na revisão `4b6d88a`, com comandos, entradas e toolchain iguais. CRC/payload e hashes completos permaneceram iguais nessa fixture, com a mesma chave/cache. Os dados comparados totalizam 24 execuções; as medianas estão no [README principal](../README.md#baseline-local-do-adaptador).
+
+O RSS foi amostrado a cada 20 ms pela soma dos processos observados: páginas compartilhadas podem ser contadas várias vezes e picos breves podem ser perdidos. O harness foi temporário; não houve medição de cache totalmente frio ou tempos internos das tarefas. Carga ambiente/cache de filesystem não foram controlados, e a primeira baseline tinha um controlador ADB ativo para testes em outro dispositivo. Três amostras por célula não estabelecem aceleração causal no host ou desempenho no Termux.
+
+## Custo do CRC no ZIP AAB
 
 Comando: `python benchmarks/aab_crc.py --samples 9`.
 
