@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Valida niveis de SDK e version-code efetivo como inteiros positivos, incluindo overrides de flavor, antes da preparacao do build.
+
 - Verifica rebuild AAB pela CLI sem clean apos desabilitar KSP, incluindo remocao de classes/recursos e nova validacao do bundle e da assinatura.
 
 - Exercita AAB KSP real pela CLI na fixture da CI, verificando bundletool, assinatura JAR, classes geradas no DEX e recurso no modulo base.

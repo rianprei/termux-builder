@@ -232,6 +232,8 @@ As fontes Java geradas por AIDL também são invalidadas quando interfaces são 
 
 ViewBinding regenera suas fontes em um diretório limpo e falha em XML malformado. Um rebuild de APK no host Linux confirmou que o binding de um layout removido desaparece do DEX, com CRC e assinatura válidos. Essa validação não demonstra paridade completa com o ViewBinding do AGP.
 
+Os campos `android.min-sdk`, `android.target-sdk` e o `version-code` efetivo (incluindo flavors) exigem inteiros positivos; strings, booleanos, valores fracionários e `null` são recusados. Isso valida formato, sem comprovar compatibilidade da toolchain com cada nível de SDK.
+
 A seção `bins` exige um mapa de nomes de ferramentas para strings de executáveis não vazias, sem NUL. Nomes de comandos e caminhos explícitos continuam aceitos; argumentos adicionais não fazem parte desse campo.
 
 A raiz de `project.yml` e a seção `android` exigem mapas YAML. Erros de sintaxe indicam linha/coluna sem reproduzir o conteúdo do arquivo, para evitar expor credenciais nos logs.
