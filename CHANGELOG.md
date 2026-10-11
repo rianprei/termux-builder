@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Faz a descoberta compartilhada de arquivos falhar explicitamente em erros de leitura de diretorios, preservando o retorno vazio para diretorios opcionais ausentes.
+
 - Valida cada classe KAPT antes de invocar a toolchain DEX, recusando symlinks e arquivos especiais e ordenando entradas deterministicamente.
 
 - Valida java-version como inteiro positivo e torna explicito nos logs o fallback existente para alvo Java 8 em modo de compatibilidade DEX/dx.

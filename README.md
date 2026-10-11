@@ -236,6 +236,8 @@ Os campos `android.min-sdk`, `android.target-sdk` , `android.java-version` e o `
 
 A seção `bins` exige um mapa de nomes de ferramentas para strings de executáveis não vazias, sem NUL. Nomes de comandos e caminhos explícitos continuam aceitos; argumentos adicionais não fazem parte desse campo.
 
+A busca compartilhada de arquivos encerra a operação quando não consegue percorrer um diretório, em vez de omitir entradas silenciosamente. Diretórios opcionais inexistentes continuam aceitos.
+
 A raiz de `project.yml` e a seção `android` exigem mapas YAML. Erros de sintaxe indicam linha/coluna sem reproduzir o conteúdo do arquivo, para evitar expor credenciais nos logs.
 
 A seção `android.signing` exige um mapa; `v1`, `v2`, `v3` e `v4` exigem booleanos YAML sem aspas. Valores inválidos são recusados na leitura da configuração.

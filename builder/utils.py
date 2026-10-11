@@ -72,7 +72,9 @@ def find_files(base_dir, suffix):
     result = []
     if not os.path.isdir(base_dir):
         return result
-    for root, _, files in os.walk(base_dir):
+    def scan_error(error):
+        raise RuntimeError(f"Cannot read file tree: {error.filename or base_dir}; check permissions and rerun the operation") from None
+    for root, _, files in os.walk(base_dir, onerror=scan_error):
         for f in files:
             if f.endswith(suffix):
                 result.append(os.path.join(root, f))
