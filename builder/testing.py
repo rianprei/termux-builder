@@ -3,6 +3,7 @@ import hashlib
 import shutil
 import stat
 import tempfile
+import zipfile
 import xml.etree.ElementTree as ET
 import requests
 from builder.utils import run, find_files, find_bin, log, ensure_dir
@@ -70,7 +71,7 @@ def run_tests(config, coverage=False, coverage_report=None):
 
     junit_jar = _find_junit(config)
     if not junit_jar:
-        log.warning("JUnit not found in libs — download junit-4.13.2 or add to dependencies")
+        log.warning("JUnit 4 runtime not found in local JARs — add junit-4.13.2 and its runtime dependencies")
         return False
 
     ensure_dir(test_classes_dir)
@@ -237,14 +238,18 @@ def _write_coverage_report(config, exec_file, report_dir):
 
 
 def _find_junit(config):
-    for jar in config.find_lib_jars():
-        if "junit" in os.path.basename(jar).lower():
-            return jar
-
-    cache_junit = os.path.join(config.cache_dir, "deps", "junit-4.13.2.jar")
-    if os.path.isfile(cache_junit):
-        return cache_junit
-
+    candidates = list(config.find_lib_jars())
+    candidates.append(os.path.join(config.cache_dir, "deps", "junit-4.13.2.jar"))
+    required = {"org/junit/runner/JUnitCore.class", "org/junit/Test.class"}
+    for jar in candidates:
+        try:
+            if not stat.S_ISREG(os.lstat(jar).st_mode):
+                continue
+            with zipfile.ZipFile(jar) as archive:
+                if required.issubset(archive.namelist()):
+                    return jar
+        except (OSError, zipfile.BadZipFile):
+            continue
     return None
 
 

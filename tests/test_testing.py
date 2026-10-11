@@ -1,14 +1,34 @@
 from pathlib import Path
 import os
 import tempfile
+import zipfile
 from types import SimpleNamespace
 import unittest
 from unittest import mock
 
-from builder.testing import run_tests, _find_test_classes, _write_coverage_report
+from builder.testing import run_tests, _find_test_classes, _write_coverage_report, _find_junit
 
 
 class TestOutputInvalidationTests(unittest.TestCase):
+    def test_junit_discovery_requires_junit4_runner_and_annotation(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            wrong = root / 'junit-platform-console.jar'
+            runtime = root / 'renamed-runtime.jar'
+            with zipfile.ZipFile(wrong, 'w') as jar:
+                jar.writestr('org/junit/platform/console/ConsoleLauncher.class', b'fixture')
+            with zipfile.ZipFile(runtime, 'w') as jar:
+                jar.writestr('org/junit/runner/JUnitCore.class', b'fixture')
+                jar.writestr('org/junit/Test.class', b'fixture')
+            config = SimpleNamespace(cache_dir=temp, find_lib_jars=lambda: [str(wrong), str(runtime)])
+            self.assertEqual(_find_junit(config), str(runtime))
+            invalid = root / 'junit-broken.jar'
+            invalid.write_bytes(b'not a zip')
+            fifo = root / 'junit-pipe.jar'
+            os.mkfifo(fifo)
+            config.find_lib_jars = lambda: [str(wrong), str(invalid), str(fifo)]
+            self.assertIsNone(_find_junit(config))
+
     def test_coverage_requires_fresh_valid_report_before_publication(self):
         for payload in ('missing', 'malformed', 'wrong_root', 'no_html'):
             with self.subTest(payload=payload), tempfile.TemporaryDirectory() as temp:

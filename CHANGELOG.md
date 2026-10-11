@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Identifica JUnit 4 pelas entradas JUnitCore/Test do JAR, sem depender de seu nome. Evita selecionar junit-platform incompatível e aceita runtime renomeado; ignora arquivos ilegíveis, ZIPs inválidos, symlinks e arquivos especiais, com diagnóstico explícito quando não encontra runtime compatível.
+
 - Reforça a fixture JaCoCo real: exige HTML reconhecível, compara todos os bytes do relatório publicado antes/depois da falha de geração e verifica remoção do staging. Passou no host JDK 21; nova execução nativa bloqueada por ausência do diretório files e dos executáveis Python/Java do Termux no dispositivo conectado.
 
 - Gera relatórios JaCoCo em staging e exige XML parseável com raiz report e index HTML antes de publicação. Regressões recusam saída ausente, malformada, raiz incorreta e HTML ausente sem alterar o relatório anterior; staging é limpo. Publicação por cópia preserva arquivos não substituídos e não é atômica.
