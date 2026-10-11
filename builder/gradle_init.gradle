@@ -1,0 +1,57 @@
+def requestedModule = System.getProperty('tb.module')
+def requestedVariant = System.getProperty('tb.variant')
+def format = System.getProperty('tb.format')
+def report = new File(System.getProperty('tb.report'))
+def nonce = System.getProperty('tb.nonce')
+def selected = false
+def error = null
+def fail = { reason ->
+    report.text = groovy.json.JsonOutput.toJson([nonce: nonce, error: reason])
+    throw new GradleException('termux-builder selection failed')
+}
+gradle.beforeProject { project ->
+    if (project.path != requestedModule) return
+    project.pluginManager.withPlugin('com.android.application') {
+        def components = project.extensions.getByName('androidComponents')
+        def pluginVersion = components.pluginVersion
+        def agpVersion = "${pluginVersion.major}.${pluginVersion.minor}.${pluginVersion.micro}".toString()
+        if (agpVersion != '9.4.1' || pluginVersion.previewType != null) {
+            error = 'agp'
+            return
+        }
+        def typeName = format == 'apk' ? 'APK' : 'BUNDLE'
+        def type = project.buildscript.classLoader.loadClass('com.android.build.api.artifact.SingleArtifact$' + typeName).getField('INSTANCE').get(null)
+        components.onVariants(components.selector().all()) { variant ->
+            if (variant.name != requestedVariant) return
+            selected = true
+            def provider = variant.artifacts.get(type)
+            def loader = variant.artifacts.getBuiltArtifactsLoader()
+            project.tasks.register(System.getProperty('tb.task')) { task ->
+                task.inputs.files(provider)
+                task.outputs.file(report)
+                task.doLast {
+                    def artifacts
+                    if (format == 'apk') {
+                        def built = loader.load(provider.get())
+                        if (built == null || built.variantName != requestedVariant) throw new GradleException('No matching APK metadata')
+                        artifacts = built.elements.collect { artifact ->
+                            [path: artifact.outputFile, filters: artifact.filters.collect { [type: it.filterType.toString(), identifier: it.identifier] }]
+                        }
+                    } else {
+                        artifacts = [[path: provider.get().asFile.absolutePath, filters: []]]
+                    }
+                    report.text = groovy.json.JsonOutput.toJson([nonce: nonce, module: project.path,
+                        variant: variant.name, applicationId: variant.applicationId.get(), format: format,
+                        gradle: project.gradle.gradleVersion, agp: agpVersion, artifacts: artifacts])
+                }
+            }
+        }
+    }
+}
+gradle.projectsEvaluated {
+    def project = rootProject.findProject(requestedModule)
+    if (project == null) fail('module')
+    if (!project.plugins.hasPlugin('com.android.application')) fail('plugin')
+    if (error != null) fail(error)
+    if (!selected) fail('variant')
+}

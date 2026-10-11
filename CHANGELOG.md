@@ -1,5 +1,9 @@
 ## Unreleased
 
+- Integra `gradle-build` experimental ao Gradle 9.7.1/AGP 9.4.1 real, separado de `project.yml`, com seleção pública de artefatos/variantes. APK/AAB pela CLI passaram no host e no Termux ARM64/Bionic; fixture host cobre Kotlin DSL, flavor, rebuild/remoção, release sem assinatura e falha offline/recuperação. Wrapper e outros pares são recusados; plugins/fontes Kotlin adicionais não certificados. CI com distribuição Gradle pinada e testes reais; execução remota ainda não verificada.
+
+- Desativa explicitamente o cache de configuração no adaptador Gradle após reproduzir incompatibilidade da tarefa temporária de exportação. A fixture habilita a opção no projeto e exige o override pela CLI; cache de dependências e execução incremental permanecem gerenciados pelo Gradle.
+
 - Corrige cobertura da assinatura AAB: testes reais reproduziram payload/metadados sem assinatura, dados anexados ao manifesto/bloco e remoção de entradas assinadas aceitos pela verificação anterior. Recusa SF embutido após reproduzir falso sucesso com SF externo adulterado. Usa jarsigner estrito e APIs públicas JDK para cobertura, pares SF/bloco autenticados, manifesto inteiro e presença dos arquivos; limita bytes reais de metadados a 16 MiB por entrada e 64 MiB no total antes de parsing verificado/bundletool/jarsigner. RSA/EC válidos e AAB AGP permanecem aceitos; stderr do JVM não é reproduzido. Confiança no certificado e assinatura somente por seções não são certificadas.
 
 - Verifica KAPT completo no Termux ARM64/Bionic, Android 16/API 36, Python 3.14.6/JDK 21.0.12, UID/contexto do aplicativo e CapEff=0. Geração acionada por Java, bytecode direto/Java/Kotlin/recursos, valor JVM 28, DEX, dois APKs/dois AABs assinados e rebuilds sem clean passaram. A repetição completa por ADB Wi-Fi terminou com código 0 após interrupção USB. JARs/android.jar locais; instalação, bootstrap, fallback K2 e outros processadores não verificados.

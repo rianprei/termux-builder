@@ -48,6 +48,8 @@ termux-builder build . --clean
 | `termux-builder build <dir> --aab` | Compila e gera um Android App Bundle assinado |
 | `termux-builder build <dir> --install` | Compila e instala via adb |
 | `termux-builder build <dir> --clean` | Build limpo (remove artifacts) |
+| `termux-builder gradle-build <dir>` | Adaptador experimental: Gradle 9.7.1/AGP 9.4.1 reais, APK verificado |
+| `termux-builder gradle-build <dir> --aab --bundletool-jar <jar>` | AAB produzido pelo AGP e verificado com bundletool local |
 | `termux-builder clean <dir>` | Remove .build/ |
 | `termux-builder deps <dir>` | Baixa dependencias Maven |
 | `termux-builder test <dir>` | Roda testes JUnit |
@@ -67,6 +69,32 @@ termux-builder build . --clean
 | `termux-builder deps-tree <dir>` | Arvore de dependencias transitivas resolvidas |
 | `termux-builder applinks <dominio> <pkg>` | Verifica assetlinks.json (App Links Assistant CLI) |
 | `termux-builder emulator list` / `start <avd>` | Lista/inicia AVD headless (sem GUI) |
+
+## Projetos Gradle (experimental)
+
+`gradle-build` delega o modelo do projeto ao Gradle/AGP real. Não converte scripts para YAML: usa as APIs públicas `SingleArtifact.APK`, `BuiltArtifactsLoader` e `SingleArtifact.BUNDLE` para construir e selecionar os artefatos da variante exata. O caminho direto `build` continua usando `project.yml`.
+
+O adaptador aceita somente o par exercitado **Gradle 9.7.1 / AGP 9.4.1**, um módulo `com.android.application` e um launcher Gradle já instalado. Outras versões e launchers Wrapper são recusados explicitamente; não há bootstrap de distribuição. Exige JDK, SDK configurado pelo projeto e ferramentas de verificação locais. No Termux, usa `aapt2` nativo como override do AGP, desativa serviços nativos do Gradle e file watching e usa daemon de uma execução. Essa combinação foi exercitada em Android 16/ARM64/Bionic com JDK 21.0.12; a flag isolada não garante compatibilidade com outros ambientes.
+
+A tarefa temporária de exportação ainda é incompatível com o cache de configuração do Gradle. O comando usa `--no-configuration-cache`, inclusive quando o projeto o habilita, sem editar `gradle.properties`. A execução incremental das tarefas e o cache de dependências continuam sob controle do Gradle; isso não comprova aceleração nem reprodutibilidade do build completo.
+
+```bash
+termux-builder gradle-build /caminho/projeto \
+  --gradle /caminho/gradle-9.7.1/bin/gradle \
+  --module :app --variant demoDebug --offline \
+  --aapt2 /caminho/aapt2 --apksigner /caminho/apksigner
+
+termux-builder gradle-build /caminho/projeto \
+  --gradle /caminho/gradle-9.7.1/bin/gradle \
+  --module :app --variant demoDebug --offline --aab \
+  --bundletool-jar /caminho/bundletool-all-1.18.3.jar
+```
+
+`--offline` exige dependências e plugins já no cache Gradle, além do SDK e bundletool locais. O JAR bundletool 1.18.3 precisa corresponder ao SHA-256 fixado pelo projeto. APK exige `apksigner verify`, CRC, manifesto e pacote da variante; AAB exige bundletool, estrutura, CRC, pacote e cobertura da assinatura JAR. A verificação ocorre em cópia privada, e o hash da saída original precisa corresponder aos bytes verificados antes do sucesso. Certificado confiável, instalação e execução Android não são certificados por esses controles. Release sem assinatura retorna código 1, mesmo quando AGP produziu o arquivo.
+
+O comando não aplica reparos nem altera scripts/configuração do projeto. Gradle executa os plugins e escreve suas saídas/caches habituais; use projetos confiáveis. O lock coordena invocações termux-builder no mesmo projeto, sem isolar outros processos. Encerramento de toda a árvore de processos após cancelamento permanece não verificado. Logs brutos dos plugins são descartados para evitar reproduzir credenciais; erros de seleção têm diagnóstico específico. Para outras falhas, o código de saída é informado: execute o Gradle diretamente no projeto para investigar sua causa. Não forneça senhas por argumentos; configure a assinatura no próprio projeto por meios que não as exponham.
+
+Reprodução: `PYTHONPATH=. python tests/integration/verify_gradle.py --gradle /caminho/gradle --sdk /caminho/SDK --aapt2 /caminho/aapt2 --apksigner /caminho/apksigner --dexdump /caminho/dexdump --bundletool-jar /caminho/bundletool-all-1.18.3.jar --offline`. A fixture usa Kotlin DSL e flavor em módulo `:mobile`, exige APK/AAB reais, classes DEX, alteração de recursos, remoção sem clean, erros de seleção, recusa de release sem assinatura e falha/recuperação com cache offline vazio. A CI configura esse par e executa o fluxo online e offline; sua execução remota permanece não verificada. Fontes Kotlin, splits, módulos dinâmicos, Capacitor e plugins adicionais precisam de validações próprias.
 
 ## Configuracao (project.yml)
 
@@ -232,8 +260,10 @@ O download do bundletool usa a versão 1.18.3 e exige o SHA-256 fixado pelo proj
 | Kotlin 1.9.24 com KAPT → APK/AAB no Termux ARM64/Bionic | VALIDATED | Fixture completa em Android 16/API 36, Python 3.14.6/JDK 21.0.12: fontes mistas, anotação Java original, Java/Kotlin/bytecode e recursos gerados, valor JVM 28, DEX, assinatura, bundletool e remoção sem clean. Dois APKs/dois AABs pela CLI, UID/contexto do Termux e capacidades Linux zeradas. JARs/android.jar fornecidos localmente, acionamento por ADB/MagiskSU; instalação, bootstrap de rede e outros processadores não verificados. |
 | Kotlin 1.9.24/KSP 1.9.24-1.0.20 → APK/AAB pela CLI | VALIDATED | Provider real no host, mesma toolchain Android/JDK: anotação em Java original dispara geração; Kotlin chama Java que usa classes Java/Kotlin geradas, com resultado 17 na JVM. Recurso, classes no DEX, assinatura e rebuild sem clean verificados. |
 | Kotlin 1.9.24/KSP 1.9.24-1.0.20 → APK/AAB no Termux ARM64/Bionic | VALIDATED | Fixture completa em Android 16/API 36, Python 3.14.6/JDK 21.0.12: projeto misto e entradas somente Java, saídas Java/Kotlin ou somente Java, resultados JVM 17/10, DEX, recurso, assinatura, bundletool e remoção sem clean. UID/contexto do Termux, capacidades Linux zeradas; JARs e android.jar fornecidos localmente, acionamento via ADB/MagiskSU. Instalação e bootstrap pela rede não verificados. |
-| Flavors e Compose | UNVERIFIED | Existem caminhos de implementação, mas não foram incluídos no build ponta a ponta desta matriz. Compose continua experimental. |
-| Projetos Gradle/AGP, Kotlin DSL, Capacitor e plugins Gradle | NOT IMPLEMENTED | O pipeline consome `project.yml`; não há adaptador para esses modelos de projeto. |
+| Flavors do pipeline `project.yml` e Compose | UNVERIFIED | Existem caminhos de implementação, mas não foram incluídos no build ponta a ponta desta matriz. Compose continua experimental. |
+| Gradle 9.7.1/AGP 9.4.1, Java e Kotlin DSL → APK/AAB | VALIDATED | CLI real no host JDK 21/API 36/Build Tools 37.0.0, módulo :mobile e flavor demoDebug; assinatura, CRC, pacote, classes DEX, recursos, rebuild/remoção sem clean, release sem assinatura, seleção inválida e cache offline vazio/recuperação. Fontes Kotlin e plugins adicionais não foram exercitados. |
+| Gradle 9.7.1/AGP 9.4.1 → APK/AAB no Termux ARM64/Bionic | VALIDATED | Android 16/API 36, JDK nativo 21.0.12, UID/contexto do aplicativo e CapEff=0: Gradle/AGP reais, Java/Kotlin DSL, produtores e CLI pública offline, APK/AAB com assinatura/CRC/manifesto/pacote verificados. SDK/JARs/cache fornecidos localmente; aapt2 nativo, executáveis SDK do host sem permissão de execução. Não comprova instalação, fontes Kotlin, bootstrap ou outros pares de versões. |
+| Capacitor, fontes Kotlin/splits/módulos dinâmicos no adaptador e outros plugins Gradle | UNVERIFIED | O adaptador executa o Gradle real, mas essas combinações ainda não têm fixtures E2E e não são anunciadas como suportadas. |
 | Maven: herança remota, propriedades, BOM imports, gestão de versão/escopo/exclusão, scopes compile/runtime, optional, mediação nearest, tipos jar/aar, exclusões por caminho e cache com hash SHA-256 | PARTIAL | Suíte unitária e build real de APK/AAB com `androidx.lifecycle:lifecycle-runtime:2.6.1`, incluindo DEX de bibliotecas. Parent `relativePath`, profiles, classifiers, tipos além de jar/aar e outras regras Maven/Gradle não estão implementados. |
 | Merge nativo de manifests, placeholders e diretivas selecionadas | PARTIAL | Testes unitários cobrem prioridade, conflitos, placeholders, `tools:*` suportado e `uses-sdk`; o pipeline também foi exercitado com AAR real. Não há equivalência total com AGP. |
 | Módulos de feature/dynamic delivery em AAB | NOT IMPLEMENTED | O AAB validado contém somente o módulo `base`. |

@@ -32,6 +32,17 @@ def main():
     build_p.add_argument("--flavor", help="Build flavor (declared under 'flavors:' in project.yml)")
     build_p.add_argument("--device", help="Target device serial for install")
 
+    gradle_p = sub.add_parser("gradle-build", help="Build and verify APK/AAB using installed Gradle 9.7.1 and AGP 9.4.1 (experimental)")
+    gradle_p.add_argument("project", help="Gradle project directory; project.yml is not required")
+    gradle_p.add_argument("--gradle", help="Installed Gradle launcher; Wrapper bootstrap is not supported")
+    gradle_p.add_argument("--module", default=":app", help="Fully qualified Android application module")
+    gradle_p.add_argument("--variant", default="debug", help="Exact AGP variant name, including flavors")
+    gradle_p.add_argument("--aab", action="store_true", help="Build and verify a signed Android App Bundle")
+    gradle_p.add_argument("--offline", action="store_true", help="Use Gradle offline resolution; requires cached dependencies")
+    gradle_p.add_argument("--aapt2", help="Native aapt2 executable for Gradle resources and APK verification")
+    gradle_p.add_argument("--apksigner", help="apksigner executable for APK signature verification")
+    gradle_p.add_argument("--bundletool-jar", help="Pinned bundletool 1.18.3 JAR required for AAB verification")
+
     init_p = sub.add_parser("init", help="Create new project")
     init_p.add_argument("name", help="Project name")
     init_p.add_argument("--package", default="com.example.app", help="Package name")
@@ -115,6 +126,9 @@ def main():
     try:
         if args.command == "build":
             _build(args)
+        elif args.command == "gradle-build":
+            from builder.gradle import build
+            build(args)
         elif args.command == "init":
             _init(args)
         elif args.command == "clean":

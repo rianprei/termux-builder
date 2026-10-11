@@ -10,6 +10,59 @@ permissions:
   contents: read
 
 jobs:
+  gradle-android-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: 'platforms;android-36 build-tools;37.0.0'
+      - name: Install package and pinned Gradle distribution
+        run: |
+          pip install .
+          fixture_tools="$RUNNER_TEMP/gradle-fixture-tools"
+          mkdir -p "$fixture_tools"
+          curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
+            https://services.gradle.org/distributions/gradle-9.7.1-bin.zip --output "$fixture_tools/gradle.zip"
+          python3 - "$fixture_tools" <<'PYTHON'
+          import hashlib, sys, zipfile
+          from pathlib import Path
+          from types import SimpleNamespace
+          from builder.aab import _download_bundletool
+          root = Path(sys.argv[1])
+          archive = root / 'gradle.zip'
+          assert hashlib.sha256(archive.read_bytes()).hexdigest() == 'acd53f1edaf02f1a8ff99879f8a34b302661a057d9b063ae9e35b552f804d20a'
+          with zipfile.ZipFile(archive) as distribution:
+              distribution.extractall(root)
+          (root / 'gradle-9.7.1/bin/gradle').chmod(0o755)
+          _download_bundletool(SimpleNamespace(cache_dir=str(root)))
+          PYTHON
+      - name: Real signature coverage regression
+        run: python3 tests/integration/verify_aab_signature.py
+      - name: Real Gradle flavor builds and negative cases
+        run: |
+          fixture_tools="$RUNNER_TEMP/gradle-fixture-tools"
+          for mode in online offline; do
+            fixture_mode=()
+            if [ "$mode" = offline ]; then fixture_mode=(--offline); fi
+            python3 tests/integration/verify_gradle.py \
+              --gradle "$fixture_tools/gradle-9.7.1/bin/gradle" \
+              --sdk "$ANDROID_HOME" \
+              --aapt2 "$ANDROID_HOME/build-tools/37.0.0/aapt2" \
+              --apksigner "$ANDROID_HOME/build-tools/37.0.0/apksigner" \
+              --dexdump "$ANDROID_HOME/build-tools/37.0.0/dexdump" \
+              --bundletool-jar "$fixture_tools/bundletool/bundletool-all-1.18.3.jar" \
+              "${fixture_mode[@]}"
+          done
+
   syntax:
     runs-on: ubuntu-latest
     steps:
