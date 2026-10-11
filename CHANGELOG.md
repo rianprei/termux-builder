@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Valida flags KAPT/KSP como booleanos YAML e annotation-processors como lista de caminhos nao vazios, recusando entradas ambiguas antes da preparacao do build.
+
 - Verifica rebuild pela CLI sem clean apos desabilitar KSP em project.yml, conferindo remocao das classes/recursos gerados e assinatura do APK final.
 
 - Exercita o build KSP pela CLI com project.yml real, biblioteca Kotlin local e senhas por ambiente; verifica assinatura, recurso e definicoes de classe no DEX do APK final.

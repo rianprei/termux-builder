@@ -8,6 +8,27 @@ from builder.config import Config
 
 
 class NativeLibraryDiscoveryTests(unittest.TestCase):
+    def test_processor_flags_require_yaml_booleans(self):
+        for flag in ('kapt', 'ksp'):
+            for value in ('false', 'true', 0, 1, None, []):
+                with self.subTest(flag=flag, value=value), tempfile.TemporaryDirectory() as tempdir:
+                    with open(os.path.join(tempdir, 'AndroidManifest.xml'), 'w') as manifest:
+                        manifest.write('<manifest package="com.example.app"/>')
+                    with open(os.path.join(tempdir, 'project.yml'), 'w') as project:
+                        json.dump({'android': {flag: value}}, project)
+                    with self.assertRaisesRegex(ValueError, flag + ' must be a boolean'):
+                        Config(tempdir)
+
+    def test_processor_paths_require_list_of_nonempty_strings(self):
+        for value in ('processor.jar', None, {}, [1], [''], ['  '], ['bad\x00path']):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as tempdir:
+                with open(os.path.join(tempdir, 'AndroidManifest.xml'), 'w') as manifest:
+                    manifest.write('<manifest package="com.example.app"/>')
+                with open(os.path.join(tempdir, 'project.yml'), 'w') as project:
+                    json.dump({'android': {}, 'annotation-processors': value}, project)
+                with self.assertRaisesRegex(ValueError, 'annotation-processors'):
+                    Config(tempdir)
+
     def test_sdk_d8_is_selected_before_dx_fallback_when_not_on_path(self):
         with tempfile.TemporaryDirectory() as tempdir:
             sdk_dir = os.path.join(tempdir, "sdk")
