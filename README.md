@@ -230,6 +230,8 @@ Java e Kotlin recompilam as fontes em diretórios de classes limpos, para que cl
 
 As fontes Java geradas por AIDL também são invalidadas quando interfaces são removidas. Projetos com arquivos `.aidl` exigem o compilador `aidl` no `PATH`; sua ausência encerra o build com erro. A geração e a remoção foram verificadas com o compilador real do SDK Build Tools 37.0.0 no host Linux; isso não comprova execução nativa no Termux.
 
+ViewBinding regenera suas fontes em um diretório limpo e falha em XML malformado. Um rebuild de APK no host Linux confirmou que o binding de um layout removido desaparece do DEX, com CRC e assinatura válidos. Essa validação não demonstra paridade completa com o ViewBinding do AGP.
+
 Comparação local entre `15e09c4` e `9ea1e8b`, em Linux x86_64, OpenJDK 25.0.4.1, Build Tools 37.0.0 e plataforma `android-36`. Foram executadas 9 amostras intercaladas por revisão. Cada amostra usa um JAR Java pequeno, chama `builder.dexer._dex_libraries(config, use_d8=True)` uma vez sem cache e uma vez com cache; o harness cronometra com `time.perf_counter`, compara o SHA-256 do DEX e lê o pico de memória dos processos filhos.
 
 | Medida | `15e09c4` | `9ea1e8b` |

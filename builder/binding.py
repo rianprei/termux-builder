@@ -1,11 +1,16 @@
 import os
+import shutil
 import xml.etree.ElementTree as ET
-from builder.utils import ensure_dir, log
+from builder.utils import ensure_dir, ensure_output_path, log
 
 
 def generate(config):
     if not config.view_binding:
         return
+
+    ensure_output_path(config.build_dir, config.binding_dir, "ViewBinding generated sources")
+    if os.path.lexists(config.binding_dir):
+        shutil.rmtree(config.binding_dir)
 
     log.info("Generating ViewBinding classes")
     layouts_dir = os.path.join(config.res_dir, "layout")
@@ -13,7 +18,7 @@ def generate(config):
         log.warning("No layout directory found — skipping ViewBinding")
         return
 
-    for f in os.listdir(layouts_dir):
+    for f in sorted(os.listdir(layouts_dir)):
         if not f.endswith(".xml"):
             continue
         layout_path = os.path.join(layouts_dir, f)
@@ -26,9 +31,8 @@ def _generate_binding_class(config, layout_path):
 
     try:
         tree = ET.parse(layout_path)
-    except ET.ParseError:
-        log.warning("Failed to parse layout: %s", layout_path)
-        return
+    except ET.ParseError as exc:
+        raise ValueError(f"Failed to parse layout {layout_path}: {exc}") from exc
 
     root = tree.getroot()
     views = _collect_views(root)

@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Invalida fontes ViewBinding antes da geracao para remover bindings de layouts apagados; valida o destino, ordena os layouts e falha explicitamente em XML malformado.
+
 - Remove apenas as fontes AIDL geradas antes de recompilar, inclusive apos apagar a ultima interface; valida o destino antes da limpeza e falha explicitamente quando ha fontes AIDL mas o compilador nao esta no PATH.
 
 - Limpa as classes Java/Kotlin antes da recompilacao, inclusive quando nao restam fontes, para impedir classes removidas no DEX; regressao com javac real e rebuild de APK/AAB na CI.
