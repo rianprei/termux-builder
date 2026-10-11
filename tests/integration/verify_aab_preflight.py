@@ -1,4 +1,4 @@
-"""Exercise AAB missing-tool diagnostics through the public CLI without deleting prior outputs."""
+"""Exercise AAB and release R8 missing-tool diagnostics without deleting prior outputs."""
 import os
 from pathlib import Path
 import shutil
@@ -38,3 +38,21 @@ with tempfile.TemporaryDirectory(prefix='termux-builder-aab-preflight-') as temp
         if marker.read_bytes() != b'previous output fixture':
             raise RuntimeError('Preflight failure deleted prior output')
         print('REAL AAB PREFLIGHT: ' + missing + ' missing, exit 1, prior output preserved')
+
+    project = Path(temp) / 'release-r8'
+    subprocess.run([sys.executable, '-m', 'builder', 'init', str(project)],
+        env=environment, check=True, capture_output=True)
+    config_path = project / 'project.yml'
+    config = yaml.safe_load(config_path.read_text())
+    config['android'].update({'r8': True, 'build-type': 'release'})
+    config_path.write_text(yaml.safe_dump(config))
+    marker = project / '.build/previous.apk'
+    marker.parent.mkdir()
+    marker.write_bytes(b'previous output fixture')
+    result = subprocess.run([sys.executable, '-m', 'builder', 'build', str(project), '--clean'],
+        env=dict(environment, PATH=''), capture_output=True, text=True)
+    if result.returncode != 1 or 'r8 enabled' not in result.stdout + result.stderr:
+        raise RuntimeError('Missing release R8 diagnostic/exit code mismatch: ' + result.stdout + result.stderr)
+    if marker.read_bytes() != b'previous output fixture':
+        raise RuntimeError('Missing release R8 deleted prior output')
+    print('REAL RELEASE PREFLIGHT: r8 missing, exit 1, prior output preserved')

@@ -82,6 +82,18 @@ class AabBuildCommandTests(unittest.TestCase):
                 resolve.assert_not_called()
                 self.build_bundle.assert_not_called()
 
+    def test_missing_release_r8_fails_before_clean_or_dependency_resolution(self):
+        self.config.r8_enabled = True
+        self.config.build_type = 'release'
+        args = self.build_args()
+        args.clean = True
+        with patch('builder.cli.shutil.which', return_value=None), \
+             patch('builder.cli._do_clean') as clean, patch('builder.deps.resolve') as resolve:
+            with self.assertRaisesRegex(RuntimeError, 'r8 enabled'):
+                cli._build(args)
+            clean.assert_not_called()
+            resolve.assert_not_called()
+
     def test_unusable_aapt2_fails_before_aab_clean(self):
         self.patch_build_bundle()
         for binary in (None, '/nonexistent/aapt2'):

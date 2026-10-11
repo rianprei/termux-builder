@@ -173,6 +173,8 @@ android:
 
 Minifica e otimiza codigo no build release.
 
+Com `android.r8: true` e `android.build-type: release`, `r8` precisa estar executável no PATH. A CLI recusa sua ausência antes de `--clean`, dependências ou recursos, preservando saídas anteriores. O diagnóstico mantém a orientação `pkg install r8` para Termux; esse teste de presença não comprova compatibilidade da versão instalada. `verify_aab_preflight.py` também cobre essa falha release pela CLI.
+
 ### Jetpack Compose (Experimental)
 
 ```yaml

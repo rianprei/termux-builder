@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Detecta R8 ausente em release antes de clean/dependências/recursos, mantendo a verificação no DEX. Regressão unitária e fixture pública falharam antes da correção; agora o diagnóstico identifica R8, retorna 1 e preserva saída anterior. Cenário integrado à fixture da CI; 296 testes passaram no host.
+
 - Elimina falso sucesso com `compose: true` sem plugin: exige compose-compiler.jar na CLI antes de clean/dependências/recursos e na compilação direta. Fixture real reproduziu o código 0 anterior; agora exige código 1 em APK/AAB, preservação dos bytes dos artefatos e recuperação após desabilitar Compose. 295 testes passaram; compilação Compose positiva continua não verificada.
 
 - Integra KSP a aplicativos sem fontes Kotlin originais: mantém análise Java com `-Xallow-no-source-files`, compila Kotlin gerado quando existir e usa somente javac/ECJ na fase final quando o provider gerar apenas Java. Fixture real remove a última fonte Kotlin e valida ambas as saídas em APK/AAB, com valores JVM 17/10 e rebuild sem clean. KAPT real e 294 testes passaram no host.
