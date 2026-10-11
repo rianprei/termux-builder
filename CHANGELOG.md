@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Corrige compilação mista do aplicativo sem processadores: Kotlin resolve fontes Java antes de Java compilar contra suas classes. Fixture real pela CLI cobre APK/AAB assinados, referências nos dois sentidos, valor JVM e dependências removidas/restauradas sem clean. KAPT/KSP reais foram revalidados no host; integra o caso comum à CI.
+
 - Integra à CI fixture pública de preflight AAB: projetos temporários e PATH isolado reproduzem Java/jarsigner/aapt2 ausentes, exigindo código 1 e preservação da saída anterior com --clean. Passou no host sem mocks da CLI; complementa builds reais.
 
 - Exige aapt2 executável no preflight AAB antes de clean e dependências, respeitando o binário resolvido/configurado. Regressão cobre AAB habilitado por configuração; CLI real com bins.aapt2 ausente retorna 1 sem apagar saída anterior. Builds APK/AAB reais permanecem aprovados no host.

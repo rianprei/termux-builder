@@ -62,8 +62,11 @@ def compile_java(config):
         log.warning("No Java files to compile")
         return
 
-    if getattr(config, "kapt_enabled", False) and config.find_kotlin_files():
-        log.info("Java compilation deferred until KAPT generated sources are available")
+    kotlin_files = config.find_kotlin_files() if hasattr(config, "find_kotlin_files") else []
+    if kotlin_files and (
+        getattr(config, "kapt_enabled", False) or not getattr(config, "annotation_processors", None)
+    ):
+        log.info("Java compilation deferred until Kotlin classes and generated sources are available")
         return
 
     log.info("Compiling %d Java files", len(all_java))
@@ -156,13 +159,15 @@ def compile_kotlin(config):
 
     all_kt_files = list(kt_files)
     generated_java = []
-    kapt_java = []
-    if getattr(config, "kapt_enabled", False) and hasattr(config, "find_java_files"):
-        kapt_java += config.find_java_files()
+    java_sources = []
+    if hasattr(config, "find_java_files") and (
+        getattr(config, "kapt_enabled", False) or not getattr(config, "annotation_processors", None)
+    ):
+        java_sources += config.find_java_files()
         if getattr(config, "gen_dir", None):
-            kapt_java += config.find_java_files(config.gen_dir)
+            java_sources += config.find_java_files(config.gen_dir)
         if getattr(config, "view_binding", False):
-            kapt_java += config.find_java_files(config.binding_dir)
+            java_sources += config.find_java_files(config.binding_dir)
 
     if getattr(config, "ksp_enabled", False):
         processor_jars = _resolve_processor_jars(config, config.annotation_processors)
@@ -228,7 +233,7 @@ def compile_kotlin(config):
         log.info("kapt: running annotation processor (phase 1/2)")
         run(prefix + [
             *kt_files,
-            *kapt_java,
+            *java_sources,
             "-classpath", classpath,
             "-d", stubs_dir,
             "-jvm-target", jvm_target,
@@ -253,7 +258,7 @@ def compile_kotlin(config):
     args = [
         config.bin_kotlinc,
         *all_kt_files,
-        *kapt_java,
+        *java_sources,
         *generated_java,
         "-classpath", classpath,
         "-d", config.kotlin_classes_dir,
@@ -270,14 +275,14 @@ def compile_kotlin(config):
 
     run(args)
 
-    if generated_java or kapt_java:
+    if generated_java or java_sources:
         ensure_output_path(config.build_dir, config.java_classes_dir, "Generated Java classes")
         ensure_dir(config.java_classes_dir)
         generated_classpath = os.pathsep.join([classpath, config.kotlin_classes_dir])
         if _can_use_ecj() and shutil.which(config.bin_javac) is None:
-            _compile_java_ecj(kapt_java + generated_java, generated_classpath, java_ver, config.java_classes_dir)
+            _compile_java_ecj(java_sources + generated_java, generated_classpath, java_ver, config.java_classes_dir)
         else:
-            _compile_java_javac(config, kapt_java + generated_java, generated_classpath, java_ver)
+            _compile_java_javac(config, java_sources + generated_java, generated_classpath, java_ver)
 
 
 def _find_compose_compiler(config):

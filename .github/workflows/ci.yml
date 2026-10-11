@@ -95,6 +95,13 @@ jobs:
             --jacoco-cli "$junit_fixture/org.jacoco.cli-0.8.12-nodeps.jar"
       - name: Real CLI AAB missing-tool preflight
         run: python3 tests/integration/verify_aab_preflight.py
+      - name: Real mixed Java Kotlin application build
+        run: >-
+          python3 tests/integration/verify_mixed_compile.py
+          --android-jar "$ANDROID_HOME/platforms/android-34/android.jar"
+          --d8 "$ANDROID_HOME/build-tools/35.0.0/d8"
+          --aapt2 "$ANDROID_HOME/build-tools/35.0.0/aapt2"
+          --apksigner "$ANDROID_HOME/build-tools/35.0.0/apksigner"
       - name: Real KAPT processor integration
         run: >-
           python3 tests/integration/verify_kapt.py

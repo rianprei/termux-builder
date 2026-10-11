@@ -10,6 +10,20 @@ from builder.compiler import _effective_java_version
 
 
 class EffectiveJavaVersionTests(unittest.TestCase):
+    def test_plain_mixed_java_compilation_is_deferred_until_kotlin(self):
+        with tempfile.TemporaryDirectory() as temp:
+            config = SimpleNamespace(build_dir=temp, java_classes_dir=os.path.join(temp, 'classes'),
+                gen_dir=os.path.join(temp, 'gen'), view_binding=False, kapt_enabled=False,
+                annotation_processors=[], bin_javac='javac', find_lib_jars=lambda: [],
+                find_kotlin_files=lambda: ['Value.kt'],
+                find_java_files=lambda base_dir=None: ['Consumer.java'] if base_dir is None else [])
+            with patch('builder.compiler._resolve_android_jar', return_value='android.jar'), \
+                 patch('builder.compiler._effective_java_version', return_value=8), \
+                 patch('builder.compiler._can_use_ecj', return_value=False), \
+                 patch('builder.compiler._compile_java_javac') as execute:
+                compiler.compile_java(config)
+                execute.assert_not_called()
+
     def test_kapt_owns_processors_only_when_kotlin_sources_exist(self):
         for enabled, kotlin_sources in ((True, ['Main.kt']), (True, []), (False, ['Main.kt'])):
             with self.subTest(kapt=enabled, kotlin=kotlin_sources), tempfile.TemporaryDirectory() as temp:
