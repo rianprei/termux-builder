@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Valida a fixture JUnit/JaCoCo real no Termux ARM64, Android 16/API 36 e JDK 21.0.12, sob UID/contexto SELinux do aplicativo e sem capacidades Linux. Confirma assertion negativa, remoção de testes, invalidação do bytecode, cobertura independente e erro de relatório; usa JARs oficiais em cache com hashes verificados. Não comprova instrumentação Android nem download no dispositivo.
+
 - Verifica JARs JaCoCo por SHA-256 fixado antes de download/publicação/reuso offline. Bootstrap exige resposta HTTPS 200 direta, limita conteúdo a 8 MiB e usa staging exclusivo; recusa caches corrompidos, symlinks e arquivos especiais, sanitiza erros de rede e limpa downloads interrompidos sem publicar cache parcial. Downloads oficiais e fixture JUnit/JaCoCo reais passaram no host.
 
 - Evita cobertura JaCoCo acumulada entre execuções com append=false e propaga falhas do gerador de relatórios para código 1. Recusa jacoco.exec com symlink, hard link, diretório ou FIFO. Fixture real JUnit/JaCoCo verifica cobertura independente por ramo e falha de relatório com bytecode truncado; conectada à CI.
