@@ -9,10 +9,10 @@ from unittest.mock import Mock, patch
 from builder import kapt
 
 
-def jar_bytes(entry):
+def jar_bytes(entry, content=b"class"):
     out = io.BytesIO()
     with zipfile.ZipFile(out, 'w') as archive:
-        archive.writestr(entry, b'class')
+        archive.writestr(entry, content)
     return out.getvalue()
 
 
@@ -140,3 +140,75 @@ class KotlinDistributionTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, 'count mismatch'):
                     kapt.setup_k1_compiler(SimpleNamespace(cache_dir=temp))
                 parser.assert_not_called()
+
+
+class KaptPluginTests(unittest.TestCase):
+    def test_corrupt_cached_plugin_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp) / 'kapt'
+            directory.mkdir()
+            (directory / 'kapt-1.9.24.jar').write_bytes(b'corrupt')
+            with self.assertRaises(RuntimeError):
+                kapt.setup_kapt_plugin(SimpleNamespace(cache_dir=temp), '1.9.24')
+
+    def test_version_traversal_is_rejected_before_download(self):
+        with tempfile.TemporaryDirectory() as temp, patch('builder.kapt.requests.get') as get:
+            with self.assertRaises(ValueError):
+                kapt.setup_kapt_plugin(SimpleNamespace(cache_dir=temp), '../../escape')
+            get.assert_not_called()
+
+    def test_valid_plugin_reuses_cache_without_network(self):
+        response = Mock()
+        response.iter_content.return_value = [jar_bytes('org/jetbrains/kotlin/kapt3/Kapt3ComponentRegistrar.class', b'\xca\xfe\xba\xbe\x00\x00\x00\x34\x00\x02')]
+        with tempfile.TemporaryDirectory() as temp:
+            config = SimpleNamespace(cache_dir=temp)
+            with patch('builder.kapt.requests.get', return_value=response) as get:
+                path = kapt.setup_kapt_plugin(config, '1.9.24')
+                self.assertEqual(kapt.setup_kapt_plugin(config, '1.9.24'), path)
+                get.assert_called_once()
+            response.close.assert_called_once()
+
+    def test_invalid_download_is_not_published(self):
+        response = Mock()
+        response.iter_content.return_value = [b'not a jar']
+        with tempfile.TemporaryDirectory() as temp:
+            with patch('builder.kapt.requests.get', return_value=response):
+                with self.assertRaises(RuntimeError):
+                    kapt.setup_kapt_plugin(SimpleNamespace(cache_dir=temp), '1.9.24')
+            self.assertEqual(list((Path(temp) / 'kapt').iterdir()), [])
+
+    def test_symlinked_plugin_preserves_target(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            directory = root / 'kapt'
+            directory.mkdir()
+            target = root / 'keep'
+            target.write_bytes(b'keep')
+            (directory / 'kapt-1.9.24.jar').symlink_to(target)
+            with self.assertRaises(RuntimeError):
+                kapt.setup_kapt_plugin(SimpleNamespace(cache_dir=temp), '1.9.24')
+            self.assertEqual(target.read_bytes(), b'keep')
+
+    def test_interrupted_plugin_download_cleans_staging(self):
+        import requests
+        response = Mock()
+        def chunks(*args):
+            yield b'partial'
+            raise requests.ConnectionError('interrupted')
+        response.iter_content.side_effect = chunks
+        with tempfile.TemporaryDirectory() as temp:
+            with patch('builder.kapt.requests.get', return_value=response):
+                with self.assertRaisesRegex(RuntimeError, 'download failed'):
+                    kapt.setup_kapt_plugin(SimpleNamespace(cache_dir=temp), '1.9.24')
+            self.assertEqual(list((Path(temp) / 'kapt').iterdir()), [])
+        response.close.assert_called_once()
+
+
+    def test_invalid_registrar_class_header_is_rejected(self):
+        response = Mock()
+        response.iter_content.return_value = [jar_bytes('org/jetbrains/kotlin/kapt3/Kapt3ComponentRegistrar.class')]
+        with tempfile.TemporaryDirectory() as temp:
+            with patch('builder.kapt.requests.get', return_value=response):
+                with self.assertRaisesRegex(RuntimeError, 'class header'):
+                    kapt.setup_kapt_plugin(SimpleNamespace(cache_dir=temp), '1.9.24')
+            self.assertEqual(list((Path(temp) / 'kapt').iterdir()), [])

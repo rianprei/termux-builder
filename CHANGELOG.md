@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Valida versoes e JARs do plugin KAPT no download e no cache; usa staging exclusivo, limita tamanho, recusa symlinks e publica somente plugins estruturalmente verificados.
+
 - Publica a distribuicao Kotlin K1 somente apos validar entradas ZIP, limites de tamanho e JARs essenciais em staging exclusivo; recusa caches incompletos/corrompidos e symlinks, limpa downloads interrompidos e preserva reutilizacao offline do cache valido.
 
 - Limpa saidas APT/KAPT/KSP antes da compilacao, incluindo projetos sem fontes restantes; recusa destinos por symlink e cobre remocao de fontes geradas com um processador javac real.

@@ -25,28 +25,63 @@ def setup_kapt_plugin(config, kotlinc_version):
     """Download kotlin-annotation-processing-embeddable matching a given
     kotlinc version. Real caveat verified: version mismatch fails hard with
     'Plugin ... is incompatible with the current version of the compiler.'"""
-    cache_dir = ensure_dir(os.path.join(config.cache_dir, "kapt"))
+    if not isinstance(kotlinc_version, str) or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?", kotlinc_version):
+        raise ValueError("Invalid Kotlin compiler version")
+    cache_dir = os.path.join(config.cache_dir, "kapt")
+    if os.path.islink(config.cache_dir) or os.path.islink(cache_dir):
+        raise RuntimeError("KAPT cache directory must not be a symlink")
+    ensure_dir(cache_dir)
     jar_path = os.path.join(cache_dir, f"kapt-{kotlinc_version}.jar")
-    if os.path.isfile(jar_path):
+    if os.path.lexists(jar_path):
+        _validate_kapt_plugin(jar_path)
         return jar_path
-
     url = (
         f"{_MAVEN_BASE}/org/jetbrains/kotlin/kotlin-annotation-processing-embeddable/"
         f"{kotlinc_version}/kotlin-annotation-processing-embeddable-{kotlinc_version}.jar"
     )
-    tmp = jar_path + ".tmp"
-    log.info("Downloading kapt plugin for kotlinc %s", kotlinc_version)
-    try:
-        r = requests.get(url, timeout=60, stream=True)
-        r.raise_for_status()
-        with open(tmp, "wb") as f:
-            for chunk in r.iter_content(8192):
-                f.write(chunk)
-        os.rename(tmp, jar_path)
-    except requests.RequestException as e:
-        log.error("kapt plugin download failed for kotlinc %s: %s", kotlinc_version, e)
-        return None
+    with tempfile.TemporaryDirectory(prefix=".kapt-plugin-", dir=cache_dir) as staging:
+        temporary = os.path.join(staging, "plugin.jar")
+        try:
+            response = requests.get(url, timeout=60, stream=True)
+            try:
+                response.raise_for_status()
+                total = 0
+                with open(temporary, "wb") as output:
+                    for chunk in response.iter_content(65536):
+                        total += len(chunk)
+                        if total > 64 * 1024 * 1024:
+                            raise RuntimeError("KAPT plugin download exceeds 64 MiB")
+                        output.write(chunk)
+            finally:
+                response.close()
+        except requests.RequestException as exc:
+            raise RuntimeError("KAPT plugin download failed; check network connectivity") from exc
+        _validate_kapt_plugin(temporary)
+        if os.path.lexists(jar_path):
+            _validate_kapt_plugin(jar_path)
+        else:
+            os.replace(temporary, jar_path)
     return jar_path
+
+
+def _validate_kapt_plugin(path):
+    if os.path.islink(path) or not os.path.isfile(path):
+        raise RuntimeError("Invalid KAPT plugin cache path")
+    try:
+        with _bounded_zip(path, 100000) as archive:
+            if sum(member.file_size for member in archive.infolist()) > 256 * 1024 * 1024:
+                raise RuntimeError("KAPT plugin exceeds validation limits")
+            registrar = "org/jetbrains/kotlin/kapt3/Kapt3ComponentRegistrar.class"
+            if archive.testzip() is not None or registrar not in archive.namelist():
+                raise RuntimeError("Invalid KAPT plugin JAR")
+            with archive.open(registrar) as source:
+                header = source.read(10)
+            if (len(header) != 10 or header[:4] != b"\xca\xfe\xba\xbe" or
+                    int.from_bytes(header[6:8], "big") < 45 or
+                    int.from_bytes(header[8:10], "big") < 2):
+                raise RuntimeError("Invalid KAPT registrar class header")
+    except (OSError, zipfile.BadZipFile) as exc:
+        raise RuntimeError("Invalid KAPT plugin JAR; remove the cached plugin and retry") from exc
 
 
 def setup_k1_compiler(config):
