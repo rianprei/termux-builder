@@ -27,6 +27,7 @@ class AabBuildCommandTests(unittest.TestCase):
             build_type="debug",
             view_binding=False,
             aab_enabled=False,
+            bin_aapt2=sys.executable,
             abi_splits=False,
         )
         self.addCleanup(self.tempdir.cleanup)
@@ -76,6 +77,21 @@ class AabBuildCommandTests(unittest.TestCase):
                 args = self.build_args(aab=True)
                 args.clean = True
                 with self.assertRaisesRegex(RuntimeError, missing + ' not found'):
+                    cli._build(args)
+                clean.assert_not_called()
+                resolve.assert_not_called()
+                self.build_bundle.assert_not_called()
+
+    def test_unusable_aapt2_fails_before_aab_clean(self):
+        self.patch_build_bundle()
+        for binary in (None, '/nonexistent/aapt2'):
+            with self.subTest(binary=binary), patch('builder.cli._do_clean') as clean, \
+                 patch('builder.deps.resolve') as resolve:
+                self.config.bin_aapt2 = binary
+                self.config.aab_enabled = True
+                args = self.build_args(aab=False)
+                args.clean = True
+                with self.assertRaisesRegex(RuntimeError, 'aapt2 not found'):
                     cli._build(args)
                 clean.assert_not_called()
                 resolve.assert_not_called()
