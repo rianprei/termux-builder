@@ -88,6 +88,17 @@ with tempfile.TemporaryDirectory(prefix='termux-builder-native-') as temp:
             raise RuntimeError('Native APK package identity differs')
         observations.append({'phase': phase, 'seconds': elapsed, 'apk_bytes': artifact.stat().st_size})
     print('REAL TERMUX APK: CLI cold build and rebuild, native signing and package verification passed', flush=True)
+    from builder.utils import project_lock
+    previous_apk = artifact.read_bytes()
+    with project_lock(str(project)):
+        for operation in (['build', str(project), '--clean'], ['clean', str(project)], ['deps', str(project)]):
+            rejected = subprocess.run([sys.executable, '-m', 'builder', *operation],
+                env=environment, capture_output=True, text=True)
+            if rejected.returncode != 1 or 'already active' not in rejected.stdout + rejected.stderr:
+                raise RuntimeError('Concurrent native CLI operation was not rejected: ' + operation[0])
+            if artifact.read_bytes() != previous_apk:
+                raise RuntimeError('Rejected native operation changed the existing APK')
+    print('REAL TERMUX LOCK: concurrent build/clean/deps rejected with exit 1 and previous APK preserved', flush=True)
     if options.aab:
         snapshots = []
         for phase in ('aab-first', 'aab-rebuild'):

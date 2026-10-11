@@ -11,6 +11,24 @@ log = logging.getLogger("termux-builder")
 
 
 @contextmanager
+def project_lock(project_dir):
+    try:
+        lock_fd = os.open(project_dir, os.O_RDONLY | os.O_DIRECTORY)
+    except OSError as exc:
+        raise RuntimeError(f"Cannot open project directory for locking: {project_dir}") from exc
+    try:
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise RuntimeError("A build, clean or dependency operation is already active for this project; retry after it finishes") from None
+        except OSError as exc:
+            raise RuntimeError(f"Cannot lock project directory on this filesystem: {project_dir}") from exc
+        yield
+    finally:
+        os.close(lock_fd)
+
+
+@contextmanager
 def _library_dex_cache_lock(cache_root):
     nofollow = getattr(os, "O_NOFOLLOW", None)
     if nofollow is None:

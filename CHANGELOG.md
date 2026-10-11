@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Serializa operações da CLI no mesmo projeto com flock no diretório: build APK/AAB, clean e deps recusam concorrência antes de alterar saídas, com código 1. Testes cobrem aliases symlink, processos independentes, SIGKILL, exceções e independência entre projetos; nenhum arquivo de lock persistente é criado.
+
 - Corrige assinatura AAB com chaves EC: remove SHA256withRSA fixo e usa a escolha do jarsigner adequada à chave, mantendo digest SHA-256. Regressão com keytool/jarsigner reais cobre RSA e EC; APK/AAB nativos e rebuild passaram com ambos.
 
 - A fixture nativa aceita --key-algorithm e verifica estabilidade do conteúdo AAB entre builds sem alteração, registrando diferenças de conteúdo e metadados por entrada. RSA/EC mantiveram o payload; assinaturas variaram, sem alegar reprodutibilidade do arquivo assinado completo.

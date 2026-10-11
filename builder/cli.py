@@ -11,7 +11,7 @@ import yaml
 import requests
 
 from builder import __version__
-from builder.utils import color, log, variant_name
+from builder.utils import color, log, variant_name, project_lock
 
 
 def main():
@@ -174,13 +174,18 @@ def main():
 
 def _build(args):
     from builder.config import Config
+    config = Config(args.project, flavor=getattr(args, "flavor", None))
+    with project_lock(config.project_dir):
+        return _build_locked(args, config)
+
+
+def _build_locked(args, config):
     from builder import deps, buildconfig, resources, compiler, dexer, packager, signer, binding, manifest, aidl
 
     start = time.time()
     log.info(color("termux-builder v%s", "bold"), __version__)
     log.info("")
 
-    config = Config(args.project, flavor=getattr(args, "flavor", None))
     build_aab = getattr(args, "aab", False) or config.aab_enabled
 
     if build_aab and args.install:
@@ -449,7 +454,8 @@ public class MainActivity extends Activity {{
 def _clean(args):
     from builder.config import Config
     config = Config(args.project)
-    _do_clean(config)
+    with project_lock(config.project_dir):
+        _do_clean(config)
     log.info(color("Clean complete", "green"))
 
 
@@ -463,7 +469,8 @@ def _deps(args):
     from builder.config import Config
     from builder import deps
     config = Config(args.project)
-    deps.resolve(config)
+    with project_lock(config.project_dir):
+        deps.resolve(config)
 
 
 def _doctor():
