@@ -1,6 +1,7 @@
 """Delegate Android builds to the installed Gradle/AGP pair exercised by the fixtures."""
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import shutil
@@ -11,12 +12,16 @@ import tempfile
 import uuid
 import zipfile
 
-from builder.utils import log, project_lock
+from builder.utils import log, project_lock, run
 
 
 def _execute(command, project, capture=True):
-    result = subprocess.run(command, cwd=project,
-        stdout=subprocess.PIPE if capture else subprocess.DEVNULL, stderr=subprocess.DEVNULL, text=True)
+    environment = dict(os.environ)
+    # Gradle's daemon detaches before applying CLI -D properties. HotSpot reads
+    # this override at JVM startup, after command-line VM options.
+    environment['_JAVA_OPTIONS'] = environment.get('_JAVA_OPTIONS', '') + ' -Dorg.gradle.native=false'
+    result = run(command, cwd=project, env=environment, check=False,
+        stdout=subprocess.PIPE if capture else subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     if result.returncode:
         # Project plugins can print credentials. Do not replay their output.
         raise RuntimeError(f"Gradle/tool invocation failed with exit {result.returncode}; run the tool directly to inspect its diagnostics")
@@ -86,11 +91,10 @@ def build(args):
             raise ValueError('Gradle Wrapper launchers are not supported; provide an installed Gradle 9.7.1 launcher to keep offline bootstrap explicit')
         shell = _tool(None, 'sh')
         _tool(None, 'java')
-        command = [shell, launcher, '--no-daemon', '--no-watch-fs', '--no-configuration-cache', '--console=plain', '--max-workers=2']
+        command = [shell, launcher, '--no-daemon', '--no-watch-fs', '--no-configuration-cache', '--console=plain', '--max-workers=2',
+            '-Dorg.gradle.native=false']
         if args.offline:
             command.append('--offline')
-        if hasattr(sys, 'getandroidapilevel'):
-            command.append('-Dorg.gradle.native=false')
         version = _execute(command + ['--version'], project)
         if not re.search(r'^Gradle 9\.7\.1\s*$', version, re.MULTILINE):
             raise RuntimeError('This experimental adapter requires installed Gradle 9.7.1; other versions have not been verified')

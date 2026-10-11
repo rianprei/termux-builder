@@ -3,8 +3,10 @@ import hashlib
 import logging
 import os
 import shutil
+import signal
 import stat
 import subprocess
+import threading
 from contextlib import contextmanager
 
 log = logging.getLogger("termux-builder")
@@ -61,10 +63,64 @@ def color(text, name):
     return f"{COLORS.get(name, '')}{text}{COLORS['reset']}"
 
 
-def run(args, capture=False, check=True, cwd=None, env=None):
+def run(args, capture=False, check=True, cwd=None, env=None, stdout=None, stderr=None):
     cmd = [str(a) for a in args]
     log.debug("$ %s", " ".join(cmd))
-    return subprocess.run(cmd, capture_output=capture, text=True, check=check, cwd=cwd, env=env)
+    if capture:
+        stdout = subprocess.PIPE if stdout is None else stdout
+        stderr = subprocess.PIPE if stderr is None else stderr
+    process = None
+    previous_handler = signal.getsignal(signal.SIGINT)
+    defer_interrupt = threading.current_thread() is threading.main_thread() and callable(previous_handler)
+    handler_owned = False
+    pending_interrupts = []
+    deferred = True
+    def defer(signum, frame):
+        nonlocal deferred
+        if deferred:
+            pending_interrupts.append((signum, frame))
+            return
+        deferred = True
+        previous_handler(signum, frame)
+        while pending_interrupts:
+            previous_handler(*pending_interrupts.pop(0))
+        deferred = False
+    try:
+        if defer_interrupt:
+            signal.signal(signal.SIGINT, defer)
+            handler_owned = True
+        try:
+            try:
+                process = subprocess.Popen(cmd, stdout=stdout, stderr=stderr, text=True, cwd=cwd, env=env,
+                                           start_new_session=True)
+            finally:
+                deferred = False
+                if defer_interrupt:
+                    while pending_interrupts:
+                        defer(*pending_interrupts.pop(0))
+            output, error = process.communicate()
+            result = subprocess.CompletedProcess(cmd, process.returncode, output, error)
+            if check:
+                result.check_returncode()
+        finally:
+            deferred = True
+            if process is not None:
+                try:
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    process.wait()
+                finally:
+                    for stream in (process.stdout, process.stderr):
+                        if stream is not None:
+                            stream.close()
+    finally:
+        if handler_owned:
+            signal.signal(signal.SIGINT, previous_handler)
+            while pending_interrupts:
+                previous_handler(*pending_interrupts.pop(0))
+    return result
 
 
 def find_bin(name):

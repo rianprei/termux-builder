@@ -1,9 +1,11 @@
 """Real Kotlin DSL/flavor builds through the public installed-Gradle adapter."""
 import argparse
 import hashlib
+import json
 import os
 from pathlib import Path
 import re
+import signal
 import subprocess
 import sys
 import tempfile
@@ -33,7 +35,7 @@ def main():
 }
 allprojects { repositories { google(); mavenCentral() } }
 ''')
-        (project / 'gradle.properties').write_text('org.gradle.jvmargs=-Xmx768m\norg.gradle.configuration-cache=true\n')
+        (project / 'gradle.properties').write_text('org.gradle.jvmargs=-Xmx768m -Dorg.gradle.native=true\norg.gradle.configuration-cache=true\n')
         module = project / 'mobile'
         module.mkdir()
         (module / 'build.gradle.kts').write_text('''apply(plugin = "com.android.application")
@@ -123,7 +125,6 @@ configure<com.android.build.api.dsl.ApplicationExtension> {
         assert 'exact variant not found' in invoke(variant='absentDebug', expected=1)
         assert 'module not found' in invoke(module=':absent', expected=1)
         invoke(variant='demoRelease', expected=1)  # AGP emits unsigned release APK; CLI must reject it.
-        import json
         release_metadata = json.loads((module / 'build/outputs/apk/demo/release/output-metadata.json').read_text())
         assert release_metadata['variantName'] == 'demoRelease'
         for element in release_metadata['elements']:
@@ -143,7 +144,79 @@ configure<com.android.build.api.dsl.ApplicationExtension> {
         finally:
             args.offline = previous
         check(invoke(), False)
-        print('GRADLE FIXTURE COMPLETE: real APK/AAB, flavor, Kotlin DSL, removal, unsigned release, selection and offline recovery', flush=True)
+        # A real AGP task starts a child that outlives a cancelled Gradle client
+        # unless its single-use daemon remains in the managed process group.
+        ready, marker = project / 'cancel-ready.json', project / 'cancelled-output'
+        writer = project / 'delayed-writer.py'
+        writer.write_text('''import json,os,signal,sys,time
+from pathlib import Path
+def token(pid):
+    return Path('/proc/'+str(pid)+'/stat').read_text().rsplit(')',1)[1].split()[19]
+signal.signal(signal.SIGTERM,signal.SIG_IGN)
+records={str(pid):token(pid) for pid in (os.getpid(),os.getppid())}
+ready=Path(sys.argv[1]); staging=ready.with_suffix('.tmp')
+staging.write_text(json.dumps(records)); staging.rename(ready)
+time.sleep(5)
+Path(sys.argv[2]).write_text('cancelled Gradle task output')
+''')
+        script = module / 'build.gradle.kts'
+        original = script.read_bytes()
+        process = None
+        records = {}
+        def identity(pid):
+            try:
+                fields = (Path('/proc') / str(pid) / 'stat').read_text().rsplit(')', 1)[1].split()
+                return fields[0], fields[19]
+            except FileNotFoundError:
+                return None
+        try:
+            extra = '\ntasks.named("preBuild") { doFirst { ProcessBuilder(' + ', '.join(
+                json.dumps(value) for value in (sys.executable, str(writer), str(ready), str(marker))) + ').start(); Thread.sleep(30000) } }\n'
+            script.write_bytes(original + extra.encode())
+            command = [sys.executable, '-m', 'builder', 'gradle-build', str(project), '--gradle', args.gradle,
+                '--module', ':mobile', '--variant', 'demoDebug', '--aapt2', args.aapt2, '--apksigner', args.apksigner]
+            if args.offline:
+                command.append('--offline')
+            with (project / 'cancel-controller.log').open('w') as output:
+                process = subprocess.Popen(command, env=base_environment, stdout=output, stderr=subprocess.STDOUT)
+                deadline = time.monotonic() + 180
+                while not ready.exists() and time.monotonic() < deadline:
+                    assert process.poll() is None, 'Gradle exited before cancellation task started'
+                    time.sleep(.05)
+                assert ready.exists(), 'Gradle cancellation task did not start'
+                records = json.loads(ready.read_text())
+                process.send_signal(signal.SIGINT)
+                assert process.wait(timeout=15) == 130, 'cancelled CLI must return 130'
+            output = (project / 'cancel-controller.log').read_text()
+            assert 'BUILD SUCCESSFUL' not in output
+            from builder.utils import project_lock
+            with project_lock(str(project)):
+                time.sleep(6)
+                assert not marker.exists(), 'Gradle child wrote after cancellation and lock release'
+                for pid, token in records.items():
+                    state = identity(pid)
+                    assert state is None or state[1] != token or state[0] == 'Z', 'owned Gradle daemon or task child survived cancellation'
+        finally:
+            try:
+                if process is not None and process.poll() is None:
+                    process.send_signal(signal.SIGINT)
+                    try:
+                        process.wait(timeout=15)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait()
+                for pid, token in records.items():
+                    state = identity(pid)
+                    if state is not None and state[1] == token and state[0] != 'Z':
+                        try:
+                            os.kill(int(pid), signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
+            finally:
+                script.write_bytes(original)
+        check(invoke(), False)
+        check(invoke('aab'), False)
+        print('GRADLE FIXTURE COMPLETE: real APK/AAB, flavor, Kotlin DSL, removal, unsigned release, selection, offline and cancellation recovery', flush=True)
 
 
 if __name__ == '__main__':

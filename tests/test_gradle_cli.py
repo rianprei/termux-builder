@@ -48,6 +48,26 @@ class GradleCommandTests(unittest.TestCase):
                 self._report_build(temp, lambda nonce: dict(nonce=nonce, module=':app', variant='debug',
                     format='apk', applicationId='com.example.app', artifacts=[]))
 
+    def test_gradle_daemon_disables_native_detachment_on_host(self):
+        with tempfile.TemporaryDirectory() as temp:
+            launcher = Path(temp) / 'gradle'
+            launcher.write_text('#!/bin/sh\n')
+            args = SimpleNamespace(project=temp, module=':app', variant='debug', gradle=str(launcher),
+                offline=True, aab=False, aapt2=None, apksigner=None, bundletool_jar=None)
+            with patch.object(gradle, '_tool', side_effect=lambda value, name: str(launcher) if name == 'gradle' else name), \
+                 patch.object(gradle, '_execute', side_effect=['Gradle 9.7.1\n', '']) as execute:
+                with self.assertRaises(RuntimeError):
+                    gradle.build(args)
+            for invocation in execute.call_args_list:
+                self.assertIn('-Dorg.gradle.native=false', invocation.args[0])
+
+    def test_jvm_startup_override_is_scoped_to_tool_processes(self):
+        with patch.dict(os.environ, {'_JAVA_OPTIONS': '-Xmx512m -Dorg.gradle.native=true'}):
+            previous = os.environ['_JAVA_OPTIONS']
+            value = gradle._execute([sys.executable, '-c', 'import os; print(os.environ["_JAVA_OPTIONS"])'], None)
+            self.assertEqual(value.strip(), previous + ' -Dorg.gradle.native=false')
+            self.assertEqual(os.environ['_JAVA_OPTIONS'], previous)
+
     def test_artifact_changes_during_verification_fail(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / 'artifact.apk'
