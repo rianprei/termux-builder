@@ -53,6 +53,16 @@ public class Generator extends AbstractProcessor {
     try (java.io.Writer javaWriter=processingEnv.getFiler().createSourceFile("GeneratedJava").openWriter()) {
      javaWriter.write("public class GeneratedJava { public static int value() { return 7; } }");
     }
+    for (Element element : round.getElementsAnnotatedWith(Deprecated.class)) {
+     if (element.getSimpleName().contentEquals("JavaConsumer")) {
+      try (java.io.Writer annotated=processingEnv.getFiler().createSourceFile("JavaAnnotationSeen").openWriter()) {
+       annotated.write("public class JavaAnnotationSeen { public static int value() { return 3; } }");
+      }
+      try (java.io.Writer resource=processingEnv.getFiler().createResource(StandardLocation.CLASS_OUTPUT,"","java-annotation.txt").openWriter()) {
+       resource.write("JavaConsumer:java.lang.Deprecated");
+      }
+     }
+    }
    } catch(java.io.IOException error) { throw new RuntimeException(error); }
   }
   return false;
@@ -138,7 +148,7 @@ public class Generator extends AbstractProcessor {
   (project/'libraries').mkdir()
   shutil.copyfile(libraries()[0],project/'libraries/kotlin-stdlib.jar')
   shutil.copyfile(manifest,project/'AndroidManifest.xml')
-  (project/'src/java/JavaConsumer.java').write_text('public class JavaConsumer { public static int value() { return GeneratedJava.value() + Direct.value() + new Generated().value(); } }')
+  (project/'src/java/JavaConsumer.java').write_text('@Deprecated public class JavaConsumer { public static int value() { return GeneratedJava.value() + Direct.value() + new Generated().value() + JavaAnnotationSeen.value(); } }')
   environment=os.environ.copy()
   environment['TB_FIXTURE_PASSWORD']=secrets.token_hex(16)
   keystore=root/'fixture.p12'
@@ -169,7 +179,7 @@ public class Generator extends AbstractProcessor {
       str(project/'libraries/kotlin-stdlib.jar'),str(root)])
      cli_runner=root/'CliRunner.java'
      cli_runner.write_text('public class CliRunner { public static void main(String[] args) { if (new Main().value()!='+
-      ('25' if enabled else '0')+') throw new AssertionError(); } }')
+      ('28' if enabled else '0')+') throw new AssertionError(); } }')
      subprocess.run(['javac','-proc:none','-classpath',cli_classpath,'-d',str(root),str(cli_runner)],check=True)
      subprocess.run(['java','-classpath',cli_classpath,'CliRunner'],check=True)
     artifact=project/('.build/kapt-cli-debug.'+('aab' if bundle else 'apk'))
@@ -184,11 +194,18 @@ public class Generator extends AbstractProcessor {
        raise RuntimeError('KAPT resource differs in CLI artifact')
      elif resource_name in archive.namelist():
       raise RuntimeError('Stale KAPT resource survived CLI rebuild')
+     annotation_resource=('base/root/' if bundle else '')+'java-annotation.txt'
+     if enabled:
+      if archive.read(annotation_resource)!=b'JavaConsumer:java.lang.Deprecated':
+       raise RuntimeError('Java annotation was not processed by KAPT')
+     elif annotation_resource in archive.namelist():
+      raise RuntimeError('Stale Java annotation resource survived CLI rebuild')
      cli_dex=root/'cli-classes.dex'
      cli_dex.write_bytes(archive.read('base/dex/classes.dex' if bundle else 'classes.dex'))
     inspected=subprocess.run([options.dexdump,'-f',str(cli_dex)],check=True,capture_output=True,text=True)
     descriptors=set(re.findall(r"Class descriptor\s*:\s*'([^']+)'",inspected.stdout))
-    if (enabled and not expected.issubset(descriptors)) or (not enabled and expected.intersection(descriptors)!={'LMain;'}):
+    cli_expected=expected|{'LJavaConsumer;','LJavaAnnotationSeen;'}
+    if (enabled and not cli_expected.issubset(descriptors)) or (not enabled and cli_expected.intersection(descriptors)!={'LMain;'}):
      raise RuntimeError('Incorrect KAPT class definitions in CLI artifact: '+repr(descriptors))
     print('REAL KAPT CLI '+('AAB' if bundle else 'APK')+(' BUILD' if enabled else ' REBUILD')+
      ': signature and ZIP verified; generated classes/resource '+('preserved' if enabled else 'removed without clean'))
