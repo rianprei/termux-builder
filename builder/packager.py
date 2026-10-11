@@ -10,8 +10,14 @@ def _processor_resource_entries(config):
         return []
     root = os.path.join(config.build_dir, "kapt", "classes")
     ensure_output_path(config.build_dir, root, "KAPT resources")
+    if not os.path.lexists(root):
+        return []
+    if not os.path.isdir(root):
+        raise ValueError("KAPT resource output must be a directory")
+    def scan_error(error):
+        raise RuntimeError(f"Cannot read KAPT resources: {error.filename or root}; check permissions and rerun the build") from None
     entries = []
-    for directory, directories, files in os.walk(root):
+    for directory, directories, files in os.walk(root, onerror=scan_error):
         directories.sort()
         for child in directories:
             ensure_output_path(root, os.path.join(directory, child), "KAPT resource directory")

@@ -7,11 +7,36 @@ from types import SimpleNamespace
 
 from builder.packager import package
 from pathlib import Path
+from unittest.mock import patch
 
 
 class ProcessorResourceTests(unittest.TestCase):
+    def test_resource_scan_failure_preserves_previous_apk(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / 'bin').mkdir()
+            (root / 'dex').mkdir()
+            resources = root / 'kapt/classes'
+            resources.mkdir(parents=True)
+            (root / 'dex/classes.dex').write_bytes(b'dex')
+            previous = root / 'bin/unsigned.apk'
+            previous.write_bytes(b'previous')
+            with zipfile.ZipFile(root / 'bin/gen.apk.res', 'w') as archive:
+                archive.writestr('AndroidManifest.xml', b'manifest')
+            config = SimpleNamespace(build_dir=temp, bin_dir=str(root / 'bin'),
+                dex_dir=str(root / 'dex'), kapt_enabled=True, find_native_libs=lambda: [])
+            original_scandir = os.scandir
+            def scan(path):
+                if os.fspath(path) == str(resources):
+                    raise PermissionError('resource directory inaccessible')
+                return original_scandir(path)
+            with patch('os.scandir', side_effect=scan):
+                with self.assertRaisesRegex(RuntimeError, 'Cannot read KAPT resources'):
+                    package(config)
+            self.assertEqual(previous.read_bytes(), b'previous')
+
     def test_unsafe_or_conflicting_resources_preserve_previous_apk(self):
-        for kind in ('symlink', 'directory-symlink', 'reserved', 'signature', 'conflict', 'backslash'):
+        for kind in ('symlink', 'directory-symlink', 'reserved', 'signature', 'conflict', 'backslash', 'root-file', 'fifo'):
             with self.subTest(kind=kind), tempfile.TemporaryDirectory() as temp:
                 root = Path(temp)
                 (root / 'bin').mkdir()
@@ -24,7 +49,12 @@ class ProcessorResourceTests(unittest.TestCase):
                 names = {'reserved': 'AndroidManifest.xml', 'signature': 'META-INF/CERT.RSA', 'backslash': 'bad\\name'}
                 resource = resources / names.get(kind, 'data.txt')
                 resource.parent.mkdir(parents=True, exist_ok=True)
-                if kind in ('symlink', 'directory-symlink'):
+                if kind == 'root-file':
+                    resources.rmdir()
+                    resources.write_bytes(b'invalid directory')
+                elif kind == 'fifo':
+                    os.mkfifo(resource)
+                elif kind in ('symlink', 'directory-symlink'):
                     outside = root / 'outside'
                     if kind == 'directory-symlink':
                         outside.mkdir()

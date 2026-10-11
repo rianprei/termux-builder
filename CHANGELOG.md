@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Falha explicitamente quando a coleta de recursos KAPT nao consegue ler diretorios; recusa saidas que nao sejam diretorios/arquivos regulares e preserva o APK anterior.
+
 - Inclui recursos CLASS_OUTPUT do KAPT no APK e no modulo base AAB, com ordenacao deterministica, rejeicao de symlinks/caminhos reservados/conflitos e preservacao do APK anterior em falhas; amplia a fixture real com aapt2.
 
 - Amplia a integracao KAPT da CI com D8 e dexdump reais, verificando definicoes de classe e remocao de saidas antigas em rebuild sem KAPT.
