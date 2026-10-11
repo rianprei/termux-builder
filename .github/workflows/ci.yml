@@ -283,3 +283,13 @@ jobs:
               print(f"{artifact}: {os.path.getsize(artifact)} bytes")
           PY
           apksigner verify --verbose "$universal_apk"
+      - name: SDK configuration and relative path regression
+        run: >-
+          python3 tests/integration/verify_sdk_selection.py
+          --sdk "$ANDROID_HOME"
+          --target-sdk 34
+          --aapt2 "$ANDROID_HOME/build-tools/35.0.0/aapt2"
+          --d8 "$ANDROID_HOME/build-tools/35.0.0/d8"
+          --apksigner "$ANDROID_HOME/build-tools/35.0.0/apksigner"
+          --dexdump "$ANDROID_HOME/build-tools/35.0.0/dexdump"
+          --bundletool-jar "$RUNNER_TEMP/termux-builder-e2e/.cache/bundletool/bundletool-all-1.18.3.jar"

@@ -193,6 +193,8 @@ class Config:
             raise ValueError("Missing 'android' section in project.yml")
         if not isinstance(raw["android"], dict):
             raise ValueError("android must be a mapping")
+        if "sdk-path" in raw:
+            raise ValueError("sdk-path must be nested under android.sdk-path in project.yml")
 
         self.name = _validate_path_segment(
             raw.get("name", os.path.basename(self.project_dir)), "project name"
@@ -341,8 +343,10 @@ class Config:
         validate_build_directory(self)
 
     def _resolve_sdk(self, configured):
-        if configured:
-            return configured
+        if configured is not None:
+            if not isinstance(configured, str) or not configured.strip() or '\x00' in configured:
+                raise ValueError("android.sdk-path must be a nonempty path without NUL; omit it for automatic SDK selection")
+            return os.path.abspath(os.path.join(self.project_dir, configured))
         for var in ("ANDROID_SDK", "ANDROID_HOME", "ANDROID_SDK_ROOT"):
             val = os.getenv(var)
             if val and os.path.isdir(val):
