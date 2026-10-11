@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Recusa sondagem Kotlin com codigo de saida nao zero, consulta stdout e stderr para a versao e evita incluir a saida bruta do processo nos erros KAPT.
+
 - Verifica Java antes dos downloads do fallback KAPT e informa como corrigir o PATH; regressao comprova que compilador e plugin nao sao baixados quando o runtime esta ausente.
 
 - Resolve caminhos relativos de processadores KSP contra o projeto e usa o separador de classpath exigido pelo plugin; adiciona integracao real na CI com um provider que gera, compila e executa Java/Kotlin.

@@ -27,6 +27,31 @@ def distribution(extra=None):
 
 
 class KaptRuntimeTests(unittest.TestCase):
+    def test_version_on_stdout_is_detected_despite_stderr_warning(self):
+        result = SimpleNamespace(returncode=0, stderr='runtime warning', stdout='kotlinc-jvm 1.9.24')
+        with patch('builder.kapt.subprocess.run', return_value=result), patch(
+            'builder.kapt.setup_kapt_plugin', return_value='plugin.jar'
+        ):
+            self.assertEqual(kapt.resolve_kapt_toolchain(SimpleNamespace(bin_kotlinc='kotlinc')), (['kotlinc'], 'plugin.jar'))
+
+    def test_unrecognized_version_does_not_expose_process_output(self):
+        result = SimpleNamespace(returncode=0, stderr='private-token', stdout='')
+        with patch('builder.kapt.subprocess.run', return_value=result):
+            with self.assertRaises(RuntimeError) as caught:
+                kapt.resolve_kapt_toolchain(SimpleNamespace(bin_kotlinc='kotlinc'))
+        self.assertNotIn('private-token', str(caught.exception))
+
+    def test_failed_version_probe_does_not_download_plugins(self):
+        config = SimpleNamespace(bin_kotlinc='kotlinc')
+        result = SimpleNamespace(returncode=1, stderr='kotlinc-jvm 1.9.24\nprivate-token', stdout='')
+        with patch('builder.kapt.subprocess.run', return_value=result), patch(
+            'builder.kapt.setup_kapt_plugin'
+        ) as plugin:
+            with self.assertRaisesRegex(RuntimeError, 'exit code 1') as caught:
+                kapt.resolve_kapt_toolchain(config)
+            self.assertNotIn('private-token', str(caught.exception))
+            plugin.assert_not_called()
+
     def test_available_java_is_used_for_fallback(self):
         config = SimpleNamespace(bin_kotlinc='kotlinc')
         with patch('builder.kapt._detect_kotlinc_version', return_value='2.0.0'), patch(
