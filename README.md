@@ -214,7 +214,7 @@ src/jniLibs/
 | APK V4 com sidecar `.idsig` | VALIDATED | Scaffold local com `min-sdk: 30`; `apksigner verify -v4-signature-file` confirmou V4. |
 | `bundletool build-apks --mode=universal` | VALIDATED | Executado sobre o AAB AndroidX acima; o APK universal passou `apksigner verify`. |
 | Instalação e abertura no Android | VALIDATED | `termux-builder init <caminho-absoluto>` + `build --install` geraram e instalaram o APK pela CLI; `adb shell am start -W -n com.example.termuxbuildervalidation1011/.MainActivity` retornou `LaunchState: COLD` e `pidof` confirmou o processo em Android 16/API 36 `arm64-v8a`. O build foi feito no host Linux x86_64 e o pacote temporário foi removido. |
-| Build executado dentro do Termux/Bionic arm64 | UNVERIFIED | O build desta rodada foi executado em Linux x86_64; compatibilidade do builder no sandbox Termux não foi exercitada. |
+| Build Java → APK executado em Android/Termux/Bionic arm64 | VALIDATED | Fixture nativa em Android 16/API 36, Python 3.14.6, JDK 21.0.12, ferramentas Termux e android.jar oficial API 36: build frio e rebuild pela CLI; assinatura, CRC, DEX e identidade do pacote verificados. Processo no UID/contexto SELinux do Termux, sem capacidades Linux; acionamento automatizado via MagiskSU. AAB/Kotlin/JNI nativos e inicialização pelo terminal interativo ainda não verificados. |
 | Bibliotecas JNI/native em APK e AAB | UNVERIFIED | Há descoberta de bibliotecas e código de empacotamento, mas nenhum build E2E com bibliotecas `.so` reais foi executado nesta rodada. |
 | Kotlin 1.9.24 com KAPT → APK/AAB pela CLI | VALIDATED | Fixture real no host, JDK 21/API 36/Build Tools 37.0.0: projeto misto Java/Kotlin, classes e recurso gerados, bytecode direto, execução JVM, assinatura e rebuild sem clean. Não comprova compatibilidade com todos os processadores. |
 | Kotlin 1.9.24/KSP 1.9.24-1.0.20 → APK/AAB pela CLI | VALIDATED | Provider real no host, mesma toolchain Android/JDK: geração Java/Kotlin, recurso, execução JVM, assinatura e rebuild sem clean. |
@@ -225,6 +225,18 @@ src/jniLibs/
 | Módulos de feature/dynamic delivery em AAB | NOT IMPLEMENTED | O AAB validado contém somente o módulo `base`. |
 
 `VALIDATED` descreve apenas as combinações e comandos listados acima. O teste em Linux não comprova execução nativa em Termux/Bionic; a assinatura de debug comprova integridade, não confiança ou identidade de publicação.
+
+### Validação nativa no Termux
+
+Execute na raiz do checkout, com Python/PyYAML, JDK, aapt2, D8 e apksigner nativos instalados:
+
+```sh
+PYTHONPATH=. python tests/integration/verify_termux.py --android-jar /caminho/android-sdk/platforms/android-36/android.jar
+```
+
+A fixture cria um projeto e certificado temporários, executa build/rebuild pela CLI e verifica o APK, removendo seus arquivos ao terminar. Ela exige Android ARM64 e recusa execução como root. Sem `--android-jar`, usa a descoberta normal de SDK do projeto. O android.jar de `/data/data/com.termux/files/usr/share/java/` instalado neste dispositivo não contém os recursos de framework exigidos pelo template: o primeiro teste falhou com `Theme.Material.Light not found`. Com o JAR oficial da plataforma API 36, o template intacto compilou usando somente executáveis nativos do Termux, sem proot/glibc/Gradle.
+
+Na validação automatizada, ADB/MagiskSU transferiu o código/JAR e iniciou o processo com UID/GID 10357, contexto `untrusted_app_27` do Termux e capacidades Linux removidas. Isso verifica o build nativo nessa configuração; não comprova inicialização pelo terminal interativo, instalação do APK produzido, AAB ou processadores Kotlin no dispositivo. Uma amostra observou 20,468 s no build frio e 19,528 s no rebuild, ambos com APK de 12.689 bytes; não é uma comparação de desempenho antes/depois.
 
 ## Benchmark do cache DEX de bibliotecas
 
@@ -252,7 +264,7 @@ Recursos KAPT de `CLASS_OUTPUT` e KSP de `.build/ksp/resources` entram no APK e 
 
 As fixtures `tests/integration/verify_kapt.py` e `verify_ksp.py` usam processadores e compiladores reais para gerar Java/Kotlin e executar as classes na JVM. Com SDK, executam D8/aapt2 e builds pela CLI, verificam as definições de classe com `dexdump`, recursos, CRC e assinatura de APK/AAB. O AAB também passa pela validação do bundletool no pipeline público. Ambas desabilitam o processador em `project.yml` e reconstroem sem `clean`, verificando a remoção de classes/recursos e a nova assinatura. KAPT também cobre `Filer.createClassFile` e um projeto misto em que Kotlin chama Java, que usa classes geradas em Java/Kotlin e bytecode direto. Uma anotação na fonte Java dispara a geração condicional de outra classe e recurso; a fixture exige ambos nos artefatos e verifica sua remoção no rebuild, inclusive a remoção da classe Java original.
 
-Esses fluxos passaram no host com JDK 21, Android 36 e Build Tools 37.0.0. Reproduza com `PYTHONPATH=. python tests/integration/verify_kapt.py --android-jar /caminho/SDK/platforms/android-36/android.jar --d8 /caminho/d8 --dexdump /caminho/dexdump --aapt2 /caminho/aapt2 --apksigner /caminho/apksigner`, com JDK compatível e `keytool`/`jarsigner` no PATH. Para KSP, troque o nome do script por `verify_ksp.py`. Sem os argumentos de SDK, as fixtures verificam apenas compilação/execução JVM. A CI configura JDK 17/Android 34/Build Tools 35.0.0; a execução remota ainda não foi confirmada. O certificado temporário é autoassinado: verificar a assinatura não comprova confiança no certificado. Instalação desses artefatos, build nativo no Termux, execução conjunta de KAPT/KSP e compatibilidade com todos os processadores permanecem não verificados.
+Esses fluxos passaram no host com JDK 21, Android 36 e Build Tools 37.0.0. Reproduza com `PYTHONPATH=. python tests/integration/verify_kapt.py --android-jar /caminho/SDK/platforms/android-36/android.jar --d8 /caminho/d8 --dexdump /caminho/dexdump --aapt2 /caminho/aapt2 --apksigner /caminho/apksigner`, com JDK compatível e `keytool`/`jarsigner` no PATH. Para KSP, troque o nome do script por `verify_ksp.py`. Sem os argumentos de SDK, as fixtures verificam apenas compilação/execução JVM. A CI configura JDK 17/Android 34/Build Tools 35.0.0; a execução remota ainda não foi confirmada. O certificado temporário é autoassinado: verificar a assinatura não comprova confiança no certificado. Instalação desses artefatos, build nativo desses fluxos KAPT/KSP no Termux, execução conjunta de KAPT/KSP e compatibilidade com todos os processadores permanecem não verificados.
 
 A sondagem `kotlinc -version` usada pelo KAPT exige código de saída zero e tem limite de 30 segundos. Falhas ao iniciar o executável ou detectar a versão encerram a preparação com orientação corretiva, sem copiar a saída bruta do processo para o erro.
 

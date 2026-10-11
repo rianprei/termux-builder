@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Adiciona fixture executavel no Termux ARM64 para builds Java reais pela CLI, assinatura, verificacao do APK e rebuild. Validada em Android 16 com UID/contexto do Termux e JAR oficial API 36; documenta a falha do JAR de sistema sem recursos de framework.
+
 - Verifica anotacao em fonte Java processada pelo KAPT no projeto misto: classe e recurso condicionais entram no APK/AAB e desaparecem no rebuild sem clean, junto com a classe Java removida.
 
 - Corrige processamento duplicado javac/KAPT: em projetos mistos, KAPT recebe os fontes Java, Kotlin resolve Java e javac compila apos a geracao sem executar novamente os processadores. A fixture real pela CLI verifica APK/AAB assinados e rebuilds sem clean.
