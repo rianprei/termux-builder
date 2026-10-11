@@ -4,6 +4,7 @@ import subprocess
 import stat
 import struct
 import tempfile
+from urllib.parse import urljoin, urlsplit
 import zipfile
 import requests
 from builder.utils import ensure_dir, find_bin, log
@@ -89,6 +90,36 @@ def _validate_toolchain_jar(path, required_class, label):
         raise RuntimeError(f"Invalid {label} JAR; remove the cached artifact and retry") from exc
 
 
+def _k1_download_response():
+    url = _K1_DIST_URL
+    for _ in range(6):
+        try:
+            parsed = urlsplit(url)
+            port = parsed.port
+        except ValueError:
+            raise RuntimeError("Invalid Kotlin distribution redirect URL") from None
+        if (parsed.scheme != "https" or parsed.hostname not in
+                {"github.com", "release-assets.githubusercontent.com"} or
+                parsed.username or parsed.password or parsed.fragment or
+                port not in (None, 443)):
+            raise RuntimeError("Kotlin distribution redirect requires an authorized HTTPS origin")
+        response = requests.get(url, timeout=180, stream=True, allow_redirects=False)
+        try:
+            response.raise_for_status()
+            if response.status_code == 200:
+                return response
+            if response.status_code not in (301, 302, 303, 307, 308):
+                raise RuntimeError("Kotlin distribution download requires HTTP 200")
+            location = response.headers.get("Location")
+            if not location:
+                raise RuntimeError("Kotlin distribution redirect is missing Location")
+            url = urljoin(url, location)
+        finally:
+            if response.status_code != 200:
+                response.close()
+    raise RuntimeError("Kotlin distribution exceeded five redirects")
+
+
 def setup_k1_compiler(config):
     """kapt3 crashes on the K2 frontend used by kotlinc 2.x (verified:
     AbstractMethodError on FirKaptAnalysisHandlerExtension.doAnalysis).
@@ -109,7 +140,7 @@ def setup_k1_compiler(config):
     with tempfile.TemporaryDirectory(prefix=".kotlin-", dir=cache_dir) as staging:
         zip_path = os.path.join(staging, "compiler.zip")
         try:
-            response = requests.get(_K1_DIST_URL, timeout=180, stream=True)
+            response = _k1_download_response()
             try:
                 response.raise_for_status()
                 total = 0
@@ -121,8 +152,8 @@ def setup_k1_compiler(config):
                         output.write(chunk)
             finally:
                 response.close()
-        except requests.RequestException as exc:
-            raise RuntimeError("Kotlin compiler download failed; check network connectivity") from exc
+        except requests.RequestException:
+            raise RuntimeError("Kotlin compiler download failed; check network connectivity") from None
         extracted = ensure_dir(os.path.join(staging, "distribution"))
         try:
             with _bounded_zip(zip_path, 10000) as archive:

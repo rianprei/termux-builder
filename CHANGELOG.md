@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Controla cada redirecionamento da distribuicao Kotlin: somente HTTPS GitHub/CDN autorizado, sem credenciais na URL, com limite de saltos e fechamento das respostas intermediarias; erros de rede nao propagam URLs assinadas.
+
 - Valida compilador embeddable, API e plugin KSP no download e na reutilizacao, compartilha o validador de JARs com KAPT, usa staging exclusivo e falha antes de baixar quando Java esta ausente.
 
 - Valida versoes e JARs do plugin KAPT no download e no cache; usa staging exclusivo, limita tamanho, recusa symlinks e publica somente plugins estruturalmente verificados.

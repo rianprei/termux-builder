@@ -221,3 +221,53 @@ class KaptPluginTests(unittest.TestCase):
                     kapt.setup_kapt_plugin(SimpleNamespace(cache_dir=temp), '1.9.24')
                 self.assertFalse(get.call_args.kwargs['allow_redirects'])
                 response.iter_content.assert_not_called()
+
+
+class KotlinRedirectTests(unittest.TestCase):
+    def test_http_redirect_is_rejected_before_second_request(self):
+        response = Mock(status_code=302, headers={'Location': 'http://release-assets.githubusercontent.com/compiler.zip'})
+        with patch('builder.kapt.requests.get', return_value=response) as get:
+            with self.assertRaises(RuntimeError):
+                kapt._k1_download_response()
+            get.assert_called_once()
+        response.close.assert_called_once()
+
+    def test_official_https_redirect_is_followed_without_automatic_redirects(self):
+        redirect = Mock(status_code=302, headers={'Location': 'https://release-assets.githubusercontent.com/compiler.zip?signature=private'})
+        final = Mock(status_code=200)
+        with patch('builder.kapt.requests.get', side_effect=[redirect, final]) as get:
+            self.assertIs(kapt._k1_download_response(), final)
+            self.assertTrue(all(call.kwargs['allow_redirects'] is False for call in get.call_args_list))
+        redirect.close.assert_called_once()
+        final.close.assert_not_called()
+
+    def test_untrusted_redirect_is_rejected_before_second_request(self):
+        response = Mock(status_code=302, headers={'Location': 'https://untrusted.invalid/compiler.zip'})
+        with patch('builder.kapt.requests.get', return_value=response) as get:
+            with self.assertRaises(RuntimeError):
+                kapt._k1_download_response()
+            get.assert_called_once()
+
+    def test_redirect_loop_is_bounded_and_responses_closed(self):
+        responses = [Mock(status_code=302, headers={'Location': 'https://github.com/loop'}) for _ in range(6)]
+        with patch('builder.kapt.requests.get', side_effect=responses) as get:
+            with self.assertRaisesRegex(RuntimeError, 'five redirects'):
+                kapt._k1_download_response()
+            self.assertEqual(get.call_count, 6)
+        for response in responses:
+            response.close.assert_called_once()
+
+    def test_redirect_credentials_are_rejected_without_exposing_secret(self):
+        response = Mock(status_code=302, headers={'Location': 'https://token-secret@github.com/compiler.zip'})
+        with patch('builder.kapt.requests.get', return_value=response) as get:
+            with self.assertRaises(RuntimeError) as error:
+                kapt._k1_download_response()
+            self.assertNotIn('token-secret', str(error.exception))
+            get.assert_called_once()
+
+    def test_malformed_port_is_rejected_before_second_request(self):
+        response = Mock(status_code=302, headers={'Location': 'https://github.com:invalid/compiler.zip'})
+        with patch('builder.kapt.requests.get', return_value=response) as get:
+            with self.assertRaisesRegex(RuntimeError, 'Invalid'):
+                kapt._k1_download_response()
+            get.assert_called_once()
