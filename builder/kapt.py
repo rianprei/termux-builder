@@ -1,6 +1,9 @@
 import os
 import re
 import subprocess
+import stat
+import struct
+import tempfile
 import zipfile
 import requests
 from builder.utils import ensure_dir, find_bin, log
@@ -55,35 +58,128 @@ def setup_k1_compiler(config):
     Downloads+caches the ~90MB dist once, returns its full lib/ classpath
     for direct `java -cp <classpath> org.jetbrains.kotlin.cli.jvm.K2JVMCompiler`
     invocation (class name predates the K1/K2 split, applies to both)."""
-    cache_dir = ensure_dir(os.path.join(config.cache_dir, "kapt"))
+    cache_dir = os.path.join(config.cache_dir, "kapt")
+    if os.path.islink(config.cache_dir) or os.path.islink(cache_dir):
+        raise RuntimeError("Kotlin cache directory must not be a symlink")
+    ensure_dir(cache_dir)
     dist_dir = os.path.join(cache_dir, f"kotlinc-{_K1_VERSION}")
-    lib_dir = os.path.join(dist_dir, "kotlinc", "lib")
-
-    if os.path.isdir(lib_dir):
-        return sorted(os.path.join(lib_dir, f) for f in os.listdir(lib_dir) if f.endswith(".jar"))
-
-    zip_path = os.path.join(cache_dir, f"kotlinc-{_K1_VERSION}.zip")
-    tmp = zip_path + ".tmp"
+    if os.path.lexists(dist_dir):
+        return _k1_classpath(dist_dir)
     log.info("Downloading Kotlin %s standalone compiler (K1, for kapt compatibility — one-time, ~90MB)", _K1_VERSION)
+    with tempfile.TemporaryDirectory(prefix=".kotlin-", dir=cache_dir) as staging:
+        zip_path = os.path.join(staging, "compiler.zip")
+        try:
+            response = requests.get(_K1_DIST_URL, timeout=180, stream=True)
+            try:
+                response.raise_for_status()
+                total = 0
+                with open(zip_path, "wb") as output:
+                    for chunk in response.iter_content(65536):
+                        total += len(chunk)
+                        if total > 256 * 1024 * 1024:
+                            raise RuntimeError("Kotlin compiler download exceeds 256 MiB")
+                        output.write(chunk)
+            finally:
+                response.close()
+        except requests.RequestException as exc:
+            raise RuntimeError("Kotlin compiler download failed; check network connectivity") from exc
+        extracted = ensure_dir(os.path.join(staging, "distribution"))
+        try:
+            with _bounded_zip(zip_path, 10000) as archive:
+                seen = set()
+                total = 0
+                for member in archive.infolist():
+                    parts = member.filename.rstrip("/").split("/")
+                    if (not parts or parts[0] != "kotlinc" or
+                            any(part in ("", ".", "..") for part in parts) or
+                            "\\" in member.filename or
+                            stat.S_ISLNK(member.external_attr >> 16) or
+                            member.filename in seen):
+                        raise RuntimeError("Unsafe entry in Kotlin compiler distribution")
+                    seen.add(member.filename)
+                    total += member.file_size
+                    if total > 512 * 1024 * 1024 or len(seen) > 10000:
+                        raise RuntimeError("Kotlin compiler distribution exceeds extraction limits")
+                archive.extractall(extracted)
+            _k1_classpath(extracted)
+        except (OSError, zipfile.BadZipFile) as exc:
+            raise RuntimeError("Invalid Kotlin compiler distribution") from exc
+        if os.path.lexists(dist_dir):
+            return _k1_classpath(dist_dir)
+        try:
+            os.rename(extracted, dist_dir)
+        except OSError:
+            if os.path.lexists(dist_dir):
+                return _k1_classpath(dist_dir)
+            raise
+    return _k1_classpath(dist_dir)
+
+
+def _bounded_zip(path, max_entries):
+    with open(path, "rb") as source:
+        source.seek(0, os.SEEK_END)
+        size = source.tell()
+        source.seek(max(0, size - 65557))
+        tail = source.read()
+    end = tail.rfind(b"PK\x05\x06")
+    while end >= 0:
+        if end + 22 <= len(tail):
+            record = struct.unpack_from("<4s4H2IH", tail, end)
+            if end + 22 + record[7] == len(tail):
+                break
+        end = tail.rfind(b"PK\x05\x06", 0, end)
+    if end < 0:
+        raise RuntimeError("Invalid Kotlin ZIP end record")
+    if (record[1] or record[2] or record[3] != record[4] or
+            record[4] == 65535 or record[4] > max_entries or
+            record[5] > 16 * 1024 * 1024 or
+            record[6] + record[5] != size - len(tail) + end):
+        raise RuntimeError("Kotlin ZIP exceeds directory limits or uses unsupported ZIP64/multipart format")
+    with open(path, "rb") as source:
+        source.seek(record[6])
+        directory_end = record[6] + record[5]
+        count = 0
+        while source.tell() < directory_end:
+            header = source.read(46)
+            if len(header) != 46 or header[:4] != b"PK\x01\x02":
+                raise RuntimeError("Invalid Kotlin ZIP directory entry")
+            fields = struct.unpack("<4s6H3I5H2I", header)
+            source.seek(sum(fields[10:13]), os.SEEK_CUR)
+            count += 1
+            if count > max_entries or source.tell() > directory_end:
+                raise RuntimeError("Kotlin ZIP exceeds directory limits")
+        if count != record[4]:
+            raise RuntimeError("Kotlin ZIP entry count mismatch")
+    return zipfile.ZipFile(path)
+
+
+def _k1_classpath(dist_dir):
+    lib_dir = os.path.join(dist_dir, "kotlinc", "lib")
+    if any(os.path.islink(path) for path in (dist_dir, os.path.join(dist_dir, "kotlinc"), lib_dir)):
+        raise RuntimeError("Kotlin compiler cache contains a symlink")
+    required = {
+        "kotlin-compiler.jar": "org/jetbrains/kotlin/cli/jvm/K2JVMCompiler.class",
+        "kotlin-stdlib.jar": "kotlin/Unit.class",
+    }
     try:
-        r = requests.get(_K1_DIST_URL, timeout=180, stream=True)
-        r.raise_for_status()
-        with open(tmp, "wb") as f:
-            for chunk in r.iter_content(65536):
-                f.write(chunk)
-        os.rename(tmp, zip_path)
-        ensure_dir(dist_dir)
-        with zipfile.ZipFile(zip_path) as z:
-            z.extractall(dist_dir)
-    except (requests.RequestException, zipfile.BadZipFile) as e:
-        log.error("K1 compiler download/extract failed: %s", e)
-        return None
-
-    if not os.path.isdir(lib_dir):
-        log.error("K1 compiler extracted but lib/ not found at expected path: %s", lib_dir)
-        return None
-
-    return sorted(os.path.join(lib_dir, f) for f in os.listdir(lib_dir) if f.endswith(".jar"))
+        names = sorted(name for name in os.listdir(lib_dir) if name.endswith(".jar"))
+        if not required.keys() <= set(names):
+            raise RuntimeError("Kotlin compiler cache is incomplete; remove the invalid distribution and retry")
+        paths = []
+        for name in names:
+            path = os.path.join(lib_dir, name)
+            if os.path.islink(path) or not os.path.isfile(path):
+                raise RuntimeError("Kotlin compiler cache contains an invalid JAR path")
+            with _bounded_zip(path, 100000) as archive:
+                members = archive.infolist()
+                if len(members) > 100000 or sum(member.file_size for member in members) > 512 * 1024 * 1024:
+                    raise RuntimeError("Kotlin compiler JAR exceeds validation limits")
+                if archive.testzip() is not None or (name in required and required[name] not in archive.namelist()):
+                    raise RuntimeError("Kotlin compiler cache contains an invalid JAR")
+            paths.append(path)
+        return paths
+    except (OSError, zipfile.BadZipFile) as exc:
+        raise RuntimeError("Invalid Kotlin compiler cache; remove the invalid distribution and retry") from exc
 
 
 def resolve_kapt_toolchain(config):
