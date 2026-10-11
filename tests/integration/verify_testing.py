@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import zipfile
 import xml.etree.ElementTree as ET
 
 import yaml
@@ -35,7 +36,10 @@ with tempfile.TemporaryDirectory(prefix='termux-builder-junit-') as temp:
     project = Path(temp)
     libs = project / '.libs'
     libs.mkdir()
-    shutil.copyfile(Path(args.junit_jar).resolve(strict=True), libs / 'junit-4.13.2.jar')
+    junit_runtime = libs / 'runtime-renamed.jar'
+    shutil.copyfile(Path(args.junit_jar).resolve(strict=True), junit_runtime)
+    with zipfile.ZipFile(libs / 'aaa-junit-incompatible.jar', 'w') as decoy:
+        decoy.writestr('META-INF/MANIFEST.MF', 'Manifest-Version: 1.0\n')
     shutil.copyfile(Path(args.hamcrest_jar).resolve(strict=True), libs / 'hamcrest-core-1.3.jar')
     (project / 'project.yml').write_text(yaml.safe_dump({'name': 'junit-fixture',
         'android': {'sdk-path': str(android_jar.parents[2]), 'java-version': 8}, 'bins': {'javac': javac}}))
@@ -67,6 +71,13 @@ with tempfile.TemporaryDirectory(prefix='termux-builder-junit-') as temp:
     classes = project / '.build/test-classes'
     if (classes / 'RemovedTest.class').exists():
         raise RuntimeError('Removed JUnit class survived rebuild')
+    disabled_runtime = libs / 'runtime-renamed.disabled'
+    junit_runtime.rename(disabled_runtime)
+    missing_runtime = run_cli(1)
+    if 'JUnit 4 runtime not found' not in missing_runtime.stdout + missing_runtime.stderr:
+        raise RuntimeError('Missing JUnit runtime must produce explicit diagnostic')
+    disabled_runtime.rename(junit_runtime)
+    run_cli(0)
     passing.unlink()
     run_cli(0)
     if classes.exists() and list(classes.rglob('*.class')):

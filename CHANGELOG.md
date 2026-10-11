@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Exercita a descoberta JUnit pela CLI com runtime oficial renomeado e JAR decoy incompatível; exige erro explícito quando o runtime é removido e recuperação após restaurá-lo. Fixture real passou no host JDK 21, incluindo geração/preservação JaCoCo.
+
 - Identifica JUnit 4 pelas entradas JUnitCore/Test do JAR, sem depender de seu nome. Evita selecionar junit-platform incompatível e aceita runtime renomeado; ignora arquivos ilegíveis, ZIPs inválidos, symlinks e arquivos especiais, com diagnóstico explícito quando não encontra runtime compatível.
 
 - Reforça a fixture JaCoCo real: exige HTML reconhecível, compara todos os bytes do relatório publicado antes/depois da falha de geração e verifica remoção do staging. Passou no host JDK 21; nova execução nativa bloqueada por ausência do diretório files e dos executáveis Python/Java do Termux no dispositivo conectado.
