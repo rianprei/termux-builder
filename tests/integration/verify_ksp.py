@@ -2,6 +2,8 @@ import argparse
 import os
 import re
 import secrets
+import sys
+import yaml
 import shutil
 import subprocess
 import tempfile
@@ -145,3 +147,34 @@ class Processor(private val generator: CodeGenerator) : SymbolProcessor {
             if archive.testzip() or 'generated-data.txt' in archive.namelist():
                 raise RuntimeError('Stale KSP resource survived signed APK rebuild')
         print('REAL KSP APK REBUILD: generated classes and resource removed; rebuilt APK signature verified')
+        project = root / 'cli-project'
+        (project / 'src/java').mkdir(parents=True)
+        (project / 'src/res').mkdir()
+        (project / 'libraries').mkdir()
+        shutil.copyfile(stdlib, project / 'libraries/kotlin-stdlib.jar')
+        shutil.copyfile(manifest, project / 'AndroidManifest.xml')
+        (project / 'src/java/Main.kt').write_text('class Main { fun value(): Int = GeneratedJava.value() }')
+        android_jar = Path(config.android_jar)
+        raw = {
+            'name': 'ksp-cli', 'cache-path': str(root / 'cache'), 'libs-path': 'libraries',
+            'annotation-processors': [str(root / 'processor.jar')],
+            'android': {'ksp': True, 'target-sdk': int(android_jar.parent.name.removeprefix('android-')),
+                'sdk-path': str(android_jar.parents[2]), 'java-version': 8,
+                'keystore-path': config.keystore_path, 'keystore-alias': config.keystore_alias,
+                'keystore-store-pass': 'env:TB_FIXTURE_PASSWORD', 'keystore-key-pass': 'env:TB_FIXTURE_PASSWORD'},
+            'bins': {'kotlinc': str(wrapper), 'aapt2': options.aapt2, 'd8': options.d8, 'apksigner': options.apksigner},
+        }
+        (project / 'project.yml').write_text(yaml.safe_dump(raw))
+        subprocess.run([sys.executable, '-m', 'builder', 'build', str(project)], env=environment, check=True)
+        artifact = project / '.build/ksp-cli-debug.apk'
+        subprocess.run([options.apksigner, 'verify', str(artifact)], check=True)
+        with zipfile.ZipFile(artifact) as archive:
+            if archive.testzip() or archive.read('generated-data.txt') != b'real-ksp-resource':
+                raise RuntimeError('KSP resource missing from CLI-built APK')
+            cli_dex = root / 'cli-classes.dex'
+            cli_dex.write_bytes(archive.read('classes.dex'))
+        inspected = subprocess.run([options.dexdump, '-f', str(cli_dex)], check=True, capture_output=True, text=True)
+        descriptors = set(re.findall(r"Class descriptor\s*:\s*'([^']+)'", inspected.stdout))
+        if not {'LGenerated;', 'LGeneratedJava;', 'LMain;'}.issubset(descriptors):
+            raise RuntimeError('Generated KSP class definitions missing from CLI APK')
+        print('REAL KSP CLI: project.yml build produced signature-verified APK containing processor resource')

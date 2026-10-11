@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Exercita o build KSP pela CLI com project.yml real, biblioteca Kotlin local e senhas por ambiente; verifica assinatura, recurso e definicoes de classe no DEX do APK final.
+
 - Verifica rebuild real de APK assinado apos desabilitar KSP: remove classes e recurso gerados, inspeciona o novo DEX e valida novamente a assinatura.
 
 - Verifica KSP com D8, dexdump, aapt2 e apksigner reais na fixture da CI: gera APK assinado, confere classes no DEX e preservacao do recurso apos assinatura, com chave temporaria e senhas via ambiente.
