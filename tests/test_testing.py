@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -7,6 +8,28 @@ from builder.testing import run_tests
 
 
 class TestOutputInvalidationTests(unittest.TestCase):
+    def test_coverage_refuses_symlink_hardlink_and_directory_execution_outputs(self):
+        for kind in ('symlink', 'hardlink', 'directory', 'fifo'):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                target = root / 'preserve'
+                target.write_bytes(b'private fixture data')
+                build = root / '.build'
+                build.mkdir()
+                output = build / 'jacoco.exec'
+                if kind == 'symlink':
+                    output.symlink_to(target)
+                elif kind == 'hardlink':
+                    os.link(target, output)
+                elif kind == 'directory':
+                    output.mkdir()
+                else:
+                    os.mkfifo(output)
+                config = SimpleNamespace(project_dir=temp, build_dir=str(build))
+                with self.assertRaisesRegex(RuntimeError, 'JaCoCo execution output'):
+                    run_tests(config, coverage=True)
+                self.assertEqual(target.read_bytes(), b'private fixture data')
+
     def test_removal_of_all_sources_clears_old_test_bytecode(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

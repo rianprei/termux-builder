@@ -1,5 +1,6 @@
 import os
 import shutil
+import stat
 import requests
 from builder.utils import run, find_files, find_bin, log, ensure_dir
 
@@ -8,6 +9,11 @@ JACOCO_BASE = "https://repo1.maven.org/maven2/org/jacoco"
 
 
 def run_tests(config, coverage=False, coverage_report=None):
+    exec_file = os.path.join(config.build_dir, "jacoco.exec") if coverage else None
+    if exec_file and os.path.lexists(exec_file):
+        existing = os.lstat(exec_file)
+        if not stat.S_ISREG(existing.st_mode) or existing.st_nlink != 1:
+            raise RuntimeError("JaCoCo execution output must be a regular file without symlinks or hard links")
     test_classes_dir = os.path.join(config.build_dir, "test-classes")
     if os.path.lexists(test_classes_dir):
         if os.path.islink(test_classes_dir) or not os.path.isdir(test_classes_dir):
@@ -91,11 +97,9 @@ def run_tests(config, coverage=False, coverage_report=None):
     ])
 
     java_args = [java, "-cp", run_cp]
-    exec_file = None
     if coverage:
         agent_jar = _find_jacoco(config, "agent", "org.jacoco.agent", "runtime")
-        exec_file = os.path.join(config.build_dir, "jacoco.exec")
-        java_args.append(f"-javaagent:{agent_jar}=destfile={exec_file}")
+        java_args.append(f"-javaagent:{agent_jar}=destfile={exec_file},append=false")
     java_args += ["org.junit.runner.JUnitCore", *test_classes]
 
     result = run(java_args, check=False)
@@ -141,7 +145,7 @@ def _write_coverage_report(config, exec_file, report_dir):
         "--sourcefiles", config.sources_dir,
         "--html", report_dir,
         "--xml", os.path.join(report_dir, "coverage.xml"),
-    ], check=False)
+    ])
     log.info("Coverage report: %s", report_dir)
 
 

@@ -64,10 +64,18 @@ jobs:
           curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
             https://repo.maven.apache.org/maven2/org/hamcrest/hamcrest-core/1.3/hamcrest-core-1.3.jar \
             --output "$junit_fixture/hamcrest-core-1.3.jar"
+          for artifact in org.jacoco.agent-0.8.12-runtime org.jacoco.cli-0.8.12-nodeps; do
+            group="${artifact%-0.8.12-*}"
+            curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
+              "https://repo.maven.apache.org/maven2/org/jacoco/$group/0.8.12/$artifact.jar" \
+              --output "$junit_fixture/$artifact.jar"
+          done
           python3 tests/integration/verify_testing.py \
             --android-jar "$ANDROID_HOME/platforms/android-34/android.jar" \
             --junit-jar "$junit_fixture/junit-4.13.2.jar" \
-            --hamcrest-jar "$junit_fixture/hamcrest-core-1.3.jar"
+            --hamcrest-jar "$junit_fixture/hamcrest-core-1.3.jar" \
+            --jacoco-agent "$junit_fixture/org.jacoco.agent-0.8.12-runtime.jar" \
+            --jacoco-cli "$junit_fixture/org.jacoco.cli-0.8.12-nodeps.jar"
       - name: Real KAPT processor integration
         run: >-
           python3 tests/integration/verify_kapt.py

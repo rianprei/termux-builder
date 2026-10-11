@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Evita cobertura JaCoCo acumulada entre execuções com append=false e propaga falhas do gerador de relatórios para código 1. Recusa jacoco.exec com symlink, hard link, diretório ou FIFO. Fixture real JUnit/JaCoCo verifica cobertura independente por ramo e falha de relatório com bytecode truncado; conectada à CI.
+
 - Protege build-path e clean contra exclusão do projeto/ancestrais e sobreposição com entradas configuradas, bibliotecas, cache e chaves. Revalida caminhos reais antes da limpeza; rejeita symlinks de saída com barras finais e traversal ambíguo, preservando diretórios externos dedicados. Regressões usam somente projetos temporários; fixture Termux cobre caminhos inseguros e rebuild com --clean.
 
 - Inclui test no lock exclusivo da CLI; regressão reproduz a execução indevida durante outra operação, e a fixture Termux verifica recusa com código 1 sem alterar o APK.

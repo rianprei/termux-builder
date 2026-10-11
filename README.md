@@ -245,6 +245,12 @@ A fixture `tests/integration/verify_testing.py` exige JDK, JUnit 4.13.2, Hamcres
 
 Essas verificações protegem as entradas declaradas e os diretórios convencionais; não identificam arquivos pessoais desconhecidos colocados numa saída nem isolam o projeto de alterações externas simultâneas. `clean` continua removendo todo o diretório de saída dedicado. Testes temporários verificam preservação de fontes, configuração, dependências, chaves, cache e aliases; a fixture Termux também recusa saídas `.`/`src` e verifica build com `--clean`.
 
+### Cobertura JaCoCo
+
+`test --coverage` substitui os dados de execução em `jacoco.exec` a cada execução (`append=false`); não acumula cobertura de testes anteriores. Um destino existente precisa ser arquivo regular com um único hard link; symlinks, diretórios e FIFOs são recusados antes da compilação. Se o gerador JaCoCo falhar, a CLI retorna código 1 e não anuncia um relatório bem-sucedido. Arquivos de relatórios antigos podem permanecer: só trate o relatório como resultado atual após sucesso do comando.
+
+A fixture JUnit aceita `--jacoco-agent /caminho/org.jacoco.agent-0.8.12-runtime.jar --jacoco-cli /caminho/org.jacoco.cli-0.8.12-nodeps.jar`. Com as ferramentas reais, executa separadamente os dois ramos da mesma classe, exige um ramo coberto e um não coberto em cada relatório XML, e exige erro quando um bytecode truncado impede gerar o relatório. Esse fluxo passou no host com JDK 21 e está conectado à CI; execução JaCoCo nativa no Termux e CI remota permanecem não verificadas. A verificação de caminhos não isola o projeto de alterações simultâneas por processos externos.
+
 ### Concorrência no projeto
 
 A CLI protege `build` (APK/AAB, incluindo `--clean`), `test`, `clean` e `deps` com um `flock` exclusivo no diretório do projeto. Uma operação concorrente no mesmo diretório é recusada imediatamente com código 1 e orientação para tentar novamente após a primeira terminar. Caminhos symlink para o mesmo diretório compartilham o lock; projetos diferentes continuam independentes. Não há arquivo de lock a apagar: o kernel libera o descritor quando o processo termina, inclusive após SIGKILL. Testes com processo independente verificam a recusa antes de alterações e a recuperação após interrupção.

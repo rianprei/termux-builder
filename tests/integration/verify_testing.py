@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import xml.etree.ElementTree as ET
 
 import yaml
 
@@ -14,7 +15,11 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--android-jar', required=True)
 parser.add_argument('--junit-jar', required=True)
 parser.add_argument('--hamcrest-jar', required=True)
+parser.add_argument('--jacoco-agent', help='JaCoCo 0.8.12 runtime agent JAR')
+parser.add_argument('--jacoco-cli', help='JaCoCo 0.8.12 nodeps CLI JAR')
 args = parser.parse_args()
+if bool(args.jacoco_agent) != bool(args.jacoco_cli):
+    parser.error('--jacoco-agent and --jacoco-cli must be supplied together')
 android_jar = Path(args.android_jar).resolve(strict=True)
 javac = shutil.which('javac')
 if not javac or not shutil.which('java'):
@@ -39,8 +44,9 @@ with tempfile.TemporaryDirectory(prefix='termux-builder-junit-') as temp:
     removed.write_text('import org.junit.Test; import static org.junit.Assert.*; '
         'public class RemovedTest { @Test public void fails() { fail("intentional fixture failure"); } }')
 
-    def run_cli(expected):
-        result = subprocess.run([sys.executable, '-m', 'builder', 'test', str(project)],
+    def run_cli(expected, coverage=False):
+        result = subprocess.run([sys.executable, '-m', 'builder', 'test', str(project),
+            *(['--coverage'] if coverage else [])],
             env=environment, capture_output=True, text=True)
         print(result.stdout + result.stderr, flush=True)
         if result.returncode != expected:
@@ -62,3 +68,31 @@ with tempfile.TemporaryDirectory(prefix='termux-builder-junit-') as temp:
     if classes.exists() and list(classes.rglob('*.class')):
         raise RuntimeError('JUnit bytecode survived removal of all sources')
     print('REAL JUNIT CLI: assertion failure, removal/rebuild and empty suite invalidation passed', flush=True)
+    if args.jacoco_agent:
+        cache = project / '.cache/deps'
+        cache.mkdir(parents=True)
+        shutil.copyfile(args.jacoco_agent, cache / 'org.jacoco.agent-0.8.12-runtime.jar')
+        shutil.copyfile(args.jacoco_cli, cache / 'org.jacoco.cli-0.8.12-nodeps.jar')
+        app_sources = project / 'src/java'
+        app_sources.mkdir()
+        source = app_sources / 'CoverageTarget.java'
+        source.write_text('public class CoverageTarget { public static int choose(boolean flag) { if (flag) return 1; return 2; } }')
+        app_classes = project / '.build/bin/classes/java'
+        app_classes.mkdir(parents=True)
+        kotlin_classes = project / '.build/bin/classes/kotlin'
+        kotlin_classes.mkdir()
+        subprocess.run([javac, '-source', '8', '-target', '8', '-d', str(app_classes), str(source)], check=True)
+        for flag, value in (('true', 1), ('false', 2)):
+            passing.write_text('import org.junit.Test; import static org.junit.Assert.*; '
+                'public class PassingTest { @Test public void passes() { assertEquals(' + str(value) +
+                ', CoverageTarget.choose(' + flag + ')); } }')
+            run_cli(0, coverage=True)
+            report = ET.parse(project / '.build/coverage/coverage.xml')
+            branch = report.find(".//class[@name='CoverageTarget']/counter[@type='BRANCH']")
+            if branch is None or branch.attrib != {'type': 'BRANCH', 'missed': '1', 'covered': '1'}:
+                raise RuntimeError('Coverage contains branches from a previous execution')
+        (kotlin_classes / 'Corrupt.class').write_bytes((app_classes / 'CoverageTarget.class').read_bytes()[:20])
+        failed_report = run_cli(1, coverage=True)
+        if 'OK (1 test)' not in failed_report.stdout + failed_report.stderr or 'Coverage report:' in failed_report.stdout + failed_report.stderr:
+            raise RuntimeError('Report failure must follow passing JUnit without announcing a successful report')
+        print('REAL JACOCO CLI: independent branch coverage and report failure exit status passed', flush=True)
