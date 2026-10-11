@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Exercita o gate de ZIP em AAB real produzido pela CLI: build/assinatura/bundletool passaram no host JDK 21/API 36/Build Tools 37.0.0; fixture reutilizável altera somente cópias temporárias para exigir rejeição de duplicatas e caminhos inseguros. Conectada ao AAB produzido pela CI.
+
 - Recusa AAB com entradas ZIP duplicadas, paths absolutos/traversal/componentes vazios, barras invertidas ou symlinks antes do bundletool/jarsigner. Regressões exigem rejeição antes de subprocessos; integração com assinatura JAR real permanece aprovada.
 
 - Exercita a descoberta JUnit pela CLI com runtime oficial renomeado e JAR decoy incompatível; exige erro explícito quando o runtime é removido e recuperação após restaurá-lo. Fixture real passou no host JDK 21, incluindo geração/preservação JaCoCo.

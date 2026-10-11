@@ -159,6 +159,7 @@ jobs:
           termux-builder build "$project" --aab
           apk="$project/.build/termux-builder-e2e-debug.apk"
           aab="$project/.build/termux-builder-e2e-debug.aab"
+          python3 "$GITHUB_WORKSPACE/tests/integration/verify_aab_archive.py" "$aab"
           apks="$RUNNER_TEMP/termux-builder-e2e.apks"
           universal_apk="$RUNNER_TEMP/termux-builder-e2e-universal.apk"
           bundletool="$project/.cache/bundletool/bundletool-all-1.18.3.jar"

@@ -231,7 +231,7 @@ O download do bundletool usa a versão 1.18.3 e exige o SHA-256 fixado pelo proj
 
 `VALIDATED` descreve apenas as combinações e comandos listados acima. O teste em Linux não comprova execução nativa em Termux/Bionic; a assinatura de debug comprova integridade, não confiança ou identidade de publicação.
 
-A verificação AAB recusa entradas ZIP duplicadas, caminhos absolutos ou com traversal/componentes vazios, barras invertidas e symlinks antes de invocar bundletool/jarsigner. Essas verificações não substituem a validação do formato protobuf nem a assinatura JAR.
+A verificação AAB recusa entradas ZIP duplicadas, caminhos absolutos ou com traversal/componentes vazios, barras invertidas e symlinks antes de invocar bundletool/jarsigner. Essas verificações não substituem a validação do formato protobuf nem a assinatura JAR. O gate passou em AAB real pela CLI no host JDK 21/API 36/Build Tools 37.0.0. Após um build validado, execute `PYTHONPATH=. python tests/integration/verify_aab_archive.py /caminho/app.aab`: a fixture modifica apenas cópias temporárias e exige rejeição de entradas duplicadas ou inseguras. Está conectada ao AAB produzido na CI; execução remota e revalidação nativa deste gate permanecem não verificadas.
 
 A assinatura AAB usa o algoritmo escolhido pelo `jarsigner` para o tipo e tamanho da chave, mantendo SHA-256 nos digests do JAR. Chaves RSA e EC foram verificadas com ferramentas reais no host e no Termux. `bundletool validate` também aceita bundles sem assinatura: o pipeline verifica a assinatura JAR separadamente; validação estrutural não comprova assinatura nem confiança no certificado.
 
