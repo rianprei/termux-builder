@@ -232,6 +232,8 @@ As fontes Java geradas por AIDL também são invalidadas quando interfaces são 
 
 ViewBinding regenera suas fontes em um diretório limpo e falha em XML malformado. Um rebuild de APK no host Linux confirmou que o binding de um layout removido desaparece do DEX, com CRC e assinatura válidos. Essa validação não demonstra paridade completa com o ViewBinding do AGP.
 
+A raiz de `project.yml` e a seção `android` exigem mapas YAML. Erros de sintaxe indicam linha/coluna sem reproduzir o conteúdo do arquivo, para evitar expor credenciais nos logs.
+
 A seção `android.signing` exige um mapa; `v1`, `v2`, `v3` e `v4` exigem booleanos YAML sem aspas. Valores inválidos são recusados na leitura da configuração.
 
 As opções Android `kapt`, `ksp`, `aab`, `desugar`, `r8`, `view-binding`, `compose`, `abi-splits` e `density-splits` exigem booleanos YAML (`true`/`false` sem aspas). `annotation-processors` exige uma lista de caminhos não vazios; uma string isolada, `null` ou entradas com NUL são recusados antes da preparação do build.

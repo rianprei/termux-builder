@@ -8,6 +8,25 @@ from builder.config import Config
 
 
 class NativeLibraryDiscoveryTests(unittest.TestCase):
+    def test_yaml_parse_error_does_not_expose_configuration_secrets(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            with open(os.path.join(tempdir, 'project.yml'), 'w') as project:
+                project.write('android:\n  keystore-store-pass: "private-test-password\n')
+            with self.assertRaisesRegex(ValueError, 'Invalid YAML.*line') as caught:
+                Config(tempdir)
+            self.assertNotIn('private-test-password', str(caught.exception))
+            self.assertTrue(caught.exception.__suppress_context__)
+
+    def test_project_and_android_sections_require_mappings(self):
+        for raw, message in (([], 'project.yml must be a mapping'), ('android', 'project.yml must be a mapping'),
+            (0, 'project.yml must be a mapping'), ({'android': None}, 'android must be a mapping'),
+            ({'android': []}, 'android must be a mapping'), ({'android': 'debug'}, 'android must be a mapping')):
+            with self.subTest(raw=raw), tempfile.TemporaryDirectory() as tempdir:
+                with open(os.path.join(tempdir, 'project.yml'), 'w') as project:
+                    json.dump(raw, project)
+                with self.assertRaisesRegex(ValueError, message):
+                    Config(tempdir)
+
     def test_explicit_signing_booleans_override_defaults(self):
         with tempfile.TemporaryDirectory() as tempdir:
             with open(os.path.join(tempdir, 'AndroidManifest.xml'), 'w') as manifest:

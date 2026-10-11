@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Valida mapas na raiz de project.yml e na secao android; erros de sintaxe YAML informam localizacao sem reproduzir linhas que possam conter credenciais.
+
 - Exige booleanos YAML nas flags de AAB, desugar, R8, ViewBinding, Compose e splits, evitando selecao involuntaria de pipeline com strings como "false".
 
 - Valida a secao android.signing e os booleanos v1-v4 antes do build, evitando interpretacoes divergentes de strings/numeros e diagnosticos tardios do apksigner.

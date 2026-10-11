@@ -153,10 +153,21 @@ class Config:
             raise FileNotFoundError("project.yml not found in " + self.project_dir)
 
         with open(yml_path) as f:
-            raw = yaml.safe_load(f) or {}
+            try:
+                raw = yaml.safe_load(f)
+            except yaml.YAMLError as error:
+                mark = getattr(error, "problem_mark", None)
+                location = f" at line {mark.line + 1}, column {mark.column + 1}" if mark else ""
+                raise ValueError(f"Invalid YAML in project.yml{location}; check syntax locally") from None
+        if raw is None:
+            raw = {}
+        if not isinstance(raw, dict):
+            raise ValueError("project.yml must be a mapping")
 
         if "android" not in raw:
             raise ValueError("Missing 'android' section in project.yml")
+        if not isinstance(raw["android"], dict):
+            raise ValueError("android must be a mapping")
 
         self.name = _validate_path_segment(
             raw.get("name", os.path.basename(self.project_dir)), "project name"
