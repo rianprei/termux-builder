@@ -49,8 +49,10 @@ class Processor(private val generator: CodeGenerator) : SymbolProcessor {
     private var generated = false
     override fun process(resolver: Resolver): List<KSAnnotated> {
         if (!generated) {
-            generator.createNewFile(Dependencies.ALL_FILES, "", "Generated", "kt").use {
-                it.write("class Generated { fun value(): Int = 7 }".toByteArray())
+            if (resolver.getClassDeclarationByName(resolver.getKSNameFromString("JavaOutputOnly")) == null) {
+                generator.createNewFile(Dependencies.ALL_FILES, "", "Generated", "kt").use {
+                    it.write("class Generated { fun value(): Int = 7 }".toByteArray())
+                }
             }
             generator.createNewFile(Dependencies.ALL_FILES, "", "GeneratedJava", "java").use {
                 it.write("public class GeneratedJava { public static int value() { return 7; } }".toByteArray())
@@ -203,6 +205,39 @@ class Processor(private val generator: CodeGenerator) : SymbolProcessor {
         if not {'LGenerated;', 'LGeneratedJava;', 'LMain;', 'LJavaConsumer;', 'LJavaSourceSeen;'}.issubset(descriptors):
             raise RuntimeError('Generated KSP classes missing from CLI AAB')
         print('REAL KSP CLI AAB: bundletool validation and signature passed; generated classes/resource preserved')
+        (project / 'src/java/Main.kt').unlink()
+        for bundle_mode in (False, True):
+            subprocess.run([sys.executable, '-m', 'builder', 'build', str(project), *(['--aab'] if bundle_mode else [])], env=environment, check=True)
+            with zipfile.ZipFile(bundle if bundle_mode else artifact) as archive:
+                cli_dex.write_bytes(archive.read('base/dex/classes.dex' if bundle_mode else 'classes.dex'))
+                if archive.testzip() or archive.read('base/root/generated-data.txt' if bundle_mode else 'generated-data.txt') != b'real-ksp-resource':
+                    raise RuntimeError('KSP resource missing from Java-only CLI build')
+            inspected = subprocess.run([options.dexdump, '-f', str(cli_dex)], check=True, capture_output=True, text=True)
+            descriptors = set(re.findall(r"Class descriptor\s*:\s*'([^']+)'", inspected.stdout))
+            if not {'LGenerated;', 'LGeneratedJava;', 'LJavaConsumer;', 'LJavaSourceSeen;'}.issubset(descriptors) or 'LMain;' in descriptors:
+                raise RuntimeError('Java-only KSP generation failed or retained removed Kotlin class')
+        runner.write_text('public class Runner { public static void main(String[] args) { if (JavaConsumer.value()!=17) throw new AssertionError(); } }')
+        subprocess.run(['javac', '-proc:none', '-classpath', cli_runtime, '-d', str(root), str(runner)], check=True)
+        subprocess.run(['java', '-classpath', cli_runtime, 'Runner'], check=True)
+        print('REAL KSP JAVA-ONLY INPUT: original Kotlin removed; Java processed and generated Kotlin/Java compiled in APK/AAB')
+        java_only_marker = java_consumer.with_name('JavaOutputOnly.java')
+        java_only_marker.write_text('public class JavaOutputOnly {}')
+        java_consumer.write_text(java_consumer.read_text().replace('new Generated().value() + ', ''))
+        for bundle_mode in (False, True):
+            subprocess.run([sys.executable, '-m', 'builder', 'build', str(project), *(['--aab'] if bundle_mode else [])], env=environment, check=True)
+            with zipfile.ZipFile(bundle if bundle_mode else artifact) as archive:
+                cli_dex.write_bytes(archive.read('base/dex/classes.dex' if bundle_mode else 'classes.dex'))
+                if archive.testzip() or archive.read('base/root/generated-data.txt' if bundle_mode else 'generated-data.txt') != b'real-ksp-resource':
+                    raise RuntimeError('KSP resource missing from Java-only generated-output build')
+            inspected = subprocess.run([options.dexdump, '-f', str(cli_dex)], check=True, capture_output=True, text=True)
+            descriptors = set(re.findall(r"Class descriptor\s*:\s*'([^']+)'", inspected.stdout))
+            if not {'LGeneratedJava;', 'LJavaConsumer;', 'LJavaSourceSeen;', 'LJavaOutputOnly;'}.issubset(descriptors) or {'LMain;', 'LGenerated;'}.intersection(descriptors):
+                raise RuntimeError('Java-only KSP output failed or retained removed Kotlin classes')
+        runner.write_text('public class Runner { public static void main(String[] args) { if (JavaConsumer.value()!=10) throw new AssertionError(); } }')
+        subprocess.run(['javac', '-proc:none', '-classpath', cli_runtime, '-d', str(root), str(runner)], check=True)
+        subprocess.run(['java', '-classpath', cli_runtime, 'Runner'], check=True)
+        java_only_marker.unlink()
+        print('REAL KSP JAVA-ONLY OUTPUT: no Kotlin sources generated; Java bytecode executed and APK/AAB validated')
         raw['android']['ksp'] = False
         raw['annotation-processors'] = []
         (project / 'project.yml').write_text(yaml.safe_dump(raw))

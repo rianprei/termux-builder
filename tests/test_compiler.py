@@ -11,18 +11,19 @@ from builder.compiler import _effective_java_version
 
 class EffectiveJavaVersionTests(unittest.TestCase):
     def test_ksp_java_compilation_waits_for_generated_kotlin(self):
-        with tempfile.TemporaryDirectory() as temp:
-            config = SimpleNamespace(build_dir=temp, java_classes_dir=os.path.join(temp, 'classes'),
-                gen_dir=os.path.join(temp, 'gen'), view_binding=False, kapt_enabled=False, ksp_enabled=True,
-                annotation_processors=['provider.jar'], bin_javac='javac', find_lib_jars=lambda: [],
-                find_kotlin_files=lambda: ['Value.kt'],
-                find_java_files=lambda base_dir=None: ['Consumer.java'] if base_dir is None else [])
-            with patch('builder.compiler._resolve_android_jar', return_value='android.jar'), \
-                 patch('builder.compiler._effective_java_version', return_value=8), \
-                 patch('builder.compiler._can_use_ecj', return_value=False), \
-                 patch('builder.compiler._compile_java_javac') as execute:
-                compiler.compile_java(config)
-                execute.assert_not_called()
+        for kotlin_sources in (['Value.kt'], []):
+            with self.subTest(kotlin=kotlin_sources), tempfile.TemporaryDirectory() as temp:
+                config = SimpleNamespace(build_dir=temp, java_classes_dir=os.path.join(temp, 'classes'),
+                    gen_dir=os.path.join(temp, 'gen'), view_binding=False, kapt_enabled=False, ksp_enabled=True,
+                    annotation_processors=['provider.jar'], bin_javac='javac', find_lib_jars=lambda: [],
+                    find_kotlin_files=lambda: kotlin_sources,
+                    find_java_files=lambda base_dir=None: ['Consumer.java'] if base_dir is None else [])
+                with patch('builder.compiler._resolve_android_jar', return_value='android.jar'), \
+                     patch('builder.compiler._effective_java_version', return_value=8), \
+                     patch('builder.compiler._can_use_ecj', return_value=False), \
+                     patch('builder.compiler._compile_java_javac') as execute:
+                    compiler.compile_java(config)
+                    execute.assert_not_called()
 
     def test_plain_mixed_java_compilation_is_deferred_until_kotlin(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -262,6 +263,29 @@ public class Generator extends AbstractProcessor {
 
 
 class KotlinProcessorWiringTests(unittest.TestCase):
+    def test_ksp_processes_java_without_kotlin_or_generated_kotlin(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / 'provider.jar').write_bytes(b'jar')
+            config = SimpleNamespace(build_dir=temp, project_dir=temp,
+                kotlin_classes_dir=str(root / 'kotlin'), java_classes_dir=str(root / 'java'),
+                find_kotlin_files=lambda: [], find_java_files=lambda base_dir=None: ['Consumer.java'],
+                find_lib_jars=lambda: [], ksp_enabled=True, kapt_enabled=False, annotation_processors=['provider.jar'],
+                bin_kotlinc='kotlinc', bin_javac='javac', compose=False)
+            def generate(args):
+                (root / 'ksp/gen/Generated.java').write_text('public class Generated {}')
+            with patch('builder.compiler._resolve_android_jar', return_value='android.jar'), \
+                 patch('builder.compiler._effective_java_version', return_value=8), \
+                 patch('builder.ksp.setup_ksp_toolchain', return_value=(['compiler'], 'ksp.jar')), \
+                 patch('builder.compiler._compile_java_javac') as javac, \
+                 patch('builder.compiler.run', side_effect=generate) as run:
+                compiler.compile_kotlin(config)
+            run.assert_called_once()
+            self.assertIn('Consumer.java', run.call_args.args[0])
+            self.assertIn('-Xallow-no-source-files', run.call_args.args[0])
+            javac.assert_called_once_with(config, ['Consumer.java', str(root / 'ksp/gen/Generated.java')],
+                os.pathsep.join(['android.jar', config.java_classes_dir, config.kotlin_classes_dir]), 8)
+
     def test_java_target_fallback_is_reported(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

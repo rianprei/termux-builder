@@ -63,10 +63,8 @@ def compile_java(config):
         return
 
     kotlin_files = config.find_kotlin_files() if hasattr(config, "find_kotlin_files") else []
-    if kotlin_files and (
-        getattr(config, "kapt_enabled", False)
-        or getattr(config, "ksp_enabled", False)
-        or not getattr(config, "annotation_processors", None)
+    if getattr(config, "ksp_enabled", False) or (
+        kotlin_files and (getattr(config, "kapt_enabled", False) or not getattr(config, "annotation_processors", None))
     ):
         log.info("Java compilation deferred until Kotlin classes and generated sources are available")
         return
@@ -147,20 +145,6 @@ def compile_kotlin(config):
     if os.path.lexists(config.kotlin_classes_dir):
         shutil.rmtree(config.kotlin_classes_dir)
     kt_files = config.find_kotlin_files()
-    if not kt_files:
-        return
-
-    log.info("Compiling %d Kotlin files", len(kt_files))
-    ensure_dir(config.kotlin_classes_dir)
-
-    android_jar = _resolve_android_jar(config)
-    lib_jars = config.find_lib_jars()
-    classpath = os.pathsep.join([android_jar, config.java_classes_dir] + lib_jars)
-    java_ver = _effective_java_version(config)
-    jvm_target = "1.8" if java_ver == 8 else str(java_ver)
-
-    all_kt_files = list(kt_files)
-    generated_java = []
     java_sources = []
     if hasattr(config, "find_java_files") and (
         getattr(config, "kapt_enabled", False)
@@ -172,6 +156,20 @@ def compile_kotlin(config):
             java_sources += config.find_java_files(config.gen_dir)
         if getattr(config, "view_binding", False):
             java_sources += config.find_java_files(config.binding_dir)
+
+    if not kt_files and not (getattr(config, "ksp_enabled", False) and java_sources):
+        return
+
+    log.info("Compiling %d Kotlin files", len(kt_files))
+    ensure_dir(config.kotlin_classes_dir)
+
+    android_jar = _resolve_android_jar(config)
+    lib_jars = config.find_lib_jars()
+    classpath = os.pathsep.join([android_jar, config.java_classes_dir] + lib_jars)
+    java_ver = _effective_java_version(config)
+    jvm_target = "1.8" if java_ver == 8 else str(java_ver)
+    all_kt_files = list(kt_files)
+    generated_java = []
 
     if getattr(config, "ksp_enabled", False):
         processor_jars = _resolve_processor_jars(config, config.annotation_processors)
@@ -195,6 +193,7 @@ def compile_kotlin(config):
             "-jvm-target", jvm_target,
             "-no-reflect",
             "-no-stdlib",
+            "-Xallow-no-source-files",
             f"-Xplugin={ksp_plugin_jar}",
             "-P", f"plugin:com.google.devtools.ksp.symbol-processing:projectBaseDir={ksp_base}",
             "-P", f"plugin:com.google.devtools.ksp.symbol-processing:kspOutputDir={ksp_gen}",
@@ -278,7 +277,8 @@ def compile_kotlin(config):
             args += [f"-Xplugin={compose_jar}"]
             log.info("Compose compiler plugin: %s", compose_jar)
 
-    run(args)
+    if all_kt_files:
+        run(args)
 
     if generated_java or java_sources:
         ensure_output_path(config.build_dir, config.java_classes_dir, "Generated Java classes")
