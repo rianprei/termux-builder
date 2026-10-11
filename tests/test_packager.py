@@ -130,10 +130,12 @@ class ProcessorResourceTests(unittest.TestCase):
                     archive.writestr('AndroidManifest.xml', b'manifest')
                 config = SimpleNamespace(build_dir=temp, bin_dir=str(root / 'bin'),
                     dex_dir=str(root / 'dex'), kapt_enabled=kind == 'kapt', ksp_enabled=kind == 'ksp', find_native_libs=lambda: [])
-                with zipfile.ZipFile(package(config)) as archive:
+                apk = Path(package(config))
+                first_apk = apk.read_bytes()
+                with zipfile.ZipFile(apk) as archive:
                     self.assertEqual(archive.read('META-INF/services/example.Service'), b'example.Generated\n')
                     self.assertNotIn('Generated.class', archive.namelist())
-                from builder.aab import _prepare_base_module
+                from builder.aab import _prepare_base_module, _zip_directory
                 proto = root / 'proto.apk'
                 with zipfile.ZipFile(proto, 'w') as archive:
                     archive.writestr('AndroidManifest.xml', b'manifest')
@@ -141,6 +143,15 @@ class ProcessorResourceTests(unittest.TestCase):
                 base = root / 'bundle/base'
                 _prepare_base_module(config, str(base), str(proto))
                 self.assertEqual((base / 'root/META-INF/services/example.Service').read_bytes(), b'example.Generated\n')
+                module_zip = root / 'base.zip'
+                _zip_directory(str(base), str(module_zip))
+                first_module = module_zip.read_bytes()
+                for source in (resource, root / 'dex/classes.dex'):
+                    os.utime(source, (946684800, 946684800))
+                self.assertEqual(Path(package(config)).read_bytes(), first_apk)
+                _prepare_base_module(config, str(base), str(proto))
+                _zip_directory(str(base), str(module_zip))
+                self.assertEqual(module_zip.read_bytes(), first_module)
 
 class PackagerDependencyDexTests(unittest.TestCase):
     def test_apk_packaging_fails_when_selected_library_dex_cache_disappears(self):

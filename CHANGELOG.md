@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Verifica estabilidade dos bytes do APK unsigned e do ZIP do modulo base AAB com recursos KAPT/KSP quando apenas os mtimes das entradas mudam.
+
 - Ordena deterministicamente os resultados da descoberta compartilhada de arquivos, eliminando dependencia da ordem de enumeracao do filesystem.
 
 - Faz a descoberta compartilhada de arquivos falhar explicitamente em erros de leitura de diretorios, preservando o retorno vazio para diretorios opcionais ausentes.
