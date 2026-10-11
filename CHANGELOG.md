@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Verifica falha de leitura para recursos KAPT/KSP e recuperacao de conflitos entre processadores em APK/modulo base AAB, incluindo preservacao do APK anterior e limpeza do staging.
+
 - Separa recursos KSP de fontes geradas e integra sua coleta segura ao APK/modulo base AAB; fixture real verifica resourceOutputDir e testes negativos cobrem ambos os processadores.
 
 - Falha explicitamente quando a coleta de recursos KAPT nao consegue ler diretorios; recusa saidas que nao sejam diretorios/arquivos regulares e preserva o APK anterior.

@@ -11,29 +11,68 @@ from unittest.mock import patch
 
 
 class ProcessorResourceTests(unittest.TestCase):
-    def test_resource_scan_failure_preserves_previous_apk(self):
+    def test_processor_resource_collision_recovers_without_stale_staging(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             (root / 'bin').mkdir()
             (root / 'dex').mkdir()
-            resources = root / 'kapt/classes'
-            resources.mkdir(parents=True)
+            for directory in ('kapt/classes', 'ksp/resources'):
+                output = root / directory
+                output.mkdir(parents=True)
+                (output / 'shared.txt').write_bytes(b'shared')
             (root / 'dex/classes.dex').write_bytes(b'dex')
             previous = root / 'bin/unsigned.apk'
             previous.write_bytes(b'previous')
             with zipfile.ZipFile(root / 'bin/gen.apk.res', 'w') as archive:
                 archive.writestr('AndroidManifest.xml', b'manifest')
             config = SimpleNamespace(build_dir=temp, bin_dir=str(root / 'bin'),
-                dex_dir=str(root / 'dex'), kapt_enabled=True, find_native_libs=lambda: [])
-            original_scandir = os.scandir
-            def scan(path):
-                if os.fspath(path) == str(resources):
-                    raise PermissionError('resource directory inaccessible')
-                return original_scandir(path)
-            with patch('os.scandir', side_effect=scan):
-                with self.assertRaisesRegex(RuntimeError, 'Cannot read KAPT resources'):
-                    package(config)
+                dex_dir=str(root / 'dex'), kapt_enabled=True, ksp_enabled=True,
+                find_native_libs=lambda: [])
+            with self.assertRaisesRegex(RuntimeError, 'Duplicate APK entry: shared.txt'):
+                package(config)
             self.assertEqual(previous.read_bytes(), b'previous')
+            self.assertEqual(list((root / 'bin').glob('.unsigned-*')), [])
+            from builder.aab import _prepare_base_module
+            proto = root / 'proto.apk'
+            with zipfile.ZipFile(proto, 'w') as archive:
+                archive.writestr('AndroidManifest.xml', b'manifest')
+                archive.writestr('resources.pb', b'resources')
+            base = root / 'bundle/base'
+            with self.assertRaisesRegex(RuntimeError, 'Duplicate AAB processor resource: shared.txt'):
+                _prepare_base_module(config, str(base), str(proto))
+            (root / 'ksp/resources/shared.txt').unlink()
+            with zipfile.ZipFile(package(config)) as archive:
+                self.assertEqual(archive.read('shared.txt'), b'shared')
+                self.assertEqual(archive.namelist().count('shared.txt'), 1)
+                self.assertIsNone(archive.testzip())
+            self.assertEqual(list((root / 'bin').glob('.unsigned-*')), [])
+            _prepare_base_module(config, str(base), str(proto))
+            self.assertEqual((base / 'root/shared.txt').read_bytes(), b'shared')
+
+    def test_resource_scan_failure_preserves_previous_apk(self):
+        for processor, output_dir in [("kapt", "kapt/classes"), ("ksp", "ksp/resources")]:
+            with tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                (root / 'bin').mkdir()
+                (root / 'dex').mkdir()
+                resources = root / output_dir
+                resources.mkdir(parents=True)
+                (root / 'dex/classes.dex').write_bytes(b'dex')
+                previous = root / 'bin/unsigned.apk'
+                previous.write_bytes(b'previous')
+                with zipfile.ZipFile(root / 'bin/gen.apk.res', 'w') as archive:
+                    archive.writestr('AndroidManifest.xml', b'manifest')
+                config = SimpleNamespace(build_dir=temp, bin_dir=str(root / 'bin'),
+                    dex_dir=str(root / 'dex'), kapt_enabled=processor == "kapt", ksp_enabled=processor == "ksp", find_native_libs=lambda: [])
+                original_scandir = os.scandir
+                def scan(path):
+                    if os.fspath(path) == str(resources):
+                        raise PermissionError('resource directory inaccessible')
+                    return original_scandir(path)
+                with patch('os.scandir', side_effect=scan):
+                    with self.assertRaisesRegex(RuntimeError, 'Cannot read ' + processor.upper() + ' resources'):
+                        package(config)
+                self.assertEqual(previous.read_bytes(), b'previous')
 
     def test_unsafe_or_conflicting_resources_preserve_previous_apk(self):
         for processor, output_dir in [("kapt", "kapt/classes"), ("ksp", "ksp/resources")]:
