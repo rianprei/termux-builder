@@ -23,7 +23,11 @@ def dex(config):
     if getattr(config, "kapt_enabled", False):
         processor_classes = os.path.join(config.build_dir, "kapt", "classes")
         ensure_output_path(config.build_dir, processor_classes, "KAPT classes")
-        all_classes += find_files(processor_classes, ".class")
+        for binary in sorted(find_files(processor_classes, ".class")):
+            ensure_output_path(processor_classes, binary, "KAPT class input")
+            if not os.path.isfile(binary):
+                raise ValueError(f"KAPT class input must be a regular file: {binary}")
+            all_classes.append(binary)
 
     if not all_classes:
         raise RuntimeError("No .class files found — compilation may have failed")

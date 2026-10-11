@@ -13,6 +13,28 @@ from builder import deps, dexer, utils
 
 
 class KaptDexTests(unittest.TestCase):
+    def test_unsafe_processor_class_is_rejected_before_dex(self):
+        for kind in ('symlink', 'fifo'):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                output = root / 'kapt/classes'
+                output.mkdir(parents=True)
+                outside = root / 'Outside.class'
+                outside.write_bytes(b'keep')
+                binary = output / 'Direct.class'
+                if kind == 'symlink':
+                    binary.symlink_to(outside)
+                else:
+                    os.mkfifo(binary)
+                config = SimpleNamespace(build_dir=temp, java_classes_dir=str(root / 'java'),
+                    kotlin_classes_dir=str(root / 'kotlin'), dex_dir=str(root / 'dex'),
+                    kapt_enabled=True, r8_enabled=False, build_type='debug')
+                with patch('builder.dexer._has_d8', return_value=True), patch('builder.dexer._run_d8') as d8, patch('builder.dexer._dex_libraries'):
+                    with self.assertRaises(ValueError):
+                        dexer.dex(config)
+                d8.assert_not_called()
+                self.assertEqual(outside.read_bytes(), b'keep')
+
     def test_symlinked_kapt_output_is_rejected_before_dex(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
