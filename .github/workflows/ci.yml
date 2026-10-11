@@ -93,6 +93,8 @@ jobs:
             --kotlin-stdlib "$kotlin_stdlib" \
             --jacoco-agent "$junit_fixture/org.jacoco.agent-0.8.12-runtime.jar" \
             --jacoco-cli "$junit_fixture/org.jacoco.cli-0.8.12-nodeps.jar"
+      - name: Real CLI AAB missing-tool preflight
+        run: python3 tests/integration/verify_aab_preflight.py
       - name: Real KAPT processor integration
         run: >-
           python3 tests/integration/verify_kapt.py
