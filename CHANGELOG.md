@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Corrige testes mistos Java/Kotlin: Kotlin resolve símbolos nas fontes Java antes de javac compilar contra as classes Kotlin. Fixture CLI com compiladores reais reproduziu a falha anterior e verifica referências nos dois sentidos, dois testes JUnit e invalidação após remover a dependência Kotlin.
+
 - Preserva nomes de pacotes contendo class na descoberta JUnit: remove somente a extensão terminal .class. Regressão reproduziu example.classic convertido incorretamente em exampleic; fixture CLI com JUnit real cobre o pacote válido no host JDK 21 e no Termux ARM64/Android 16.
 
 - Corrige o alvo JVM dos testes Kotlin para 1.8 quando java-version é 8, preservando outros níveis. Regressão unitária falhou antes da correção; fixture CLI com Kotlin 1.9.24/JDK 21 reais verifica execução JUnit, bytecode major 52 e remoção do teste. Cenário conectado à CI; execução nativa Kotlin permanece não verificada.

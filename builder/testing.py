@@ -83,27 +83,28 @@ def run_tests(config, coverage=False, coverage_report=None):
         *lib_jars,
     ])
 
-    if test_java:
-        run([
-            config.bin_javac,
-            "-source", str(config.java_version),
-            "-target", str(config.java_version),
-            "-classpath", classpath,
-            "-proc:none",
-            "-d", test_classes_dir,
-            *test_java,
-        ])
-
     if test_kt:
         kt_cp = os.pathsep.join([classpath, test_classes_dir])
         run([
             config.bin_kotlinc,
             *test_kt,
+            *test_java,
             "-classpath", kt_cp,
             "-d", test_classes_dir,
             "-jvm-target", "1.8" if config.java_version == 8 else str(config.java_version),
             "-no-reflect",
             "-no-stdlib",
+        ])
+
+    if test_java:
+        run([
+            config.bin_javac,
+            "-source", str(config.java_version),
+            "-target", str(config.java_version),
+            "-classpath", os.pathsep.join([classpath, test_classes_dir]),
+            "-proc:none",
+            "-d", test_classes_dir,
+            *test_java,
         ])
 
     test_classes = _find_test_classes(test_classes_dir)

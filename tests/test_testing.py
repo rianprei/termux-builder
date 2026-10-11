@@ -25,11 +25,13 @@ class TestOutputInvalidationTests(unittest.TestCase):
                 source = root / 'src/test/ExampleTest.kt'
                 source.parent.mkdir(parents=True)
                 source.write_text('class ExampleTest')
+                java_source = source.parent / 'JavaInteropTest.java'
+                java_source.write_text('class JavaInteropTest {}')
                 config = SimpleNamespace(
                     project_dir=temp, build_dir=str(root / '.build'),
                     android_jar='android.jar', java_classes_dir='java',
                     kotlin_classes_dir='kotlin', java_version=version,
-                    bin_kotlinc='kotlinc', find_lib_jars=lambda: [],
+                    bin_kotlinc='kotlinc', bin_javac='javac', find_lib_jars=lambda: [],
                 )
                 with mock.patch('builder.testing._find_junit', return_value='junit.jar'), \
                      mock.patch('builder.testing._find_test_classes', return_value=['ExampleTest']), \
@@ -38,6 +40,11 @@ class TestOutputInvalidationTests(unittest.TestCase):
                     self.assertTrue(run_tests(config))
                 command = execute.call_args_list[0].args[0]
                 self.assertEqual(command[command.index('-jvm-target') + 1], expected)
+                self.assertEqual(command[0], 'kotlinc')
+                self.assertIn(str(java_source), command)
+                java_command = execute.call_args_list[1].args[0]
+                self.assertEqual(java_command[0], 'javac')
+                self.assertIn(str(root / '.build/test-classes'), java_command[java_command.index('-classpath') + 1].split(os.pathsep))
 
     def test_coverage_refuses_symlink_hardlink_and_directory_execution_outputs(self):
         for kind in ('symlink', 'hardlink', 'directory', 'fifo'):

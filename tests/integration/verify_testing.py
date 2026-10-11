@@ -79,18 +79,31 @@ with tempfile.TemporaryDirectory(prefix='termux-builder-junit-') as temp:
         (project / 'project.yml').write_text(yaml.safe_dump(configuration))
         kotlin_test = sources / 'KotlinTest.kt'
         kotlin_test.write_text('import org.junit.Test; import org.junit.Assert.assertEquals; '
-            'class KotlinTest { @Test fun passes() { assertEquals(7, 3 + 4) } }')
+            'class KotlinValue { fun value(): Int = JavaHelper.base() } '
+            'class KotlinTest { @Test fun passes() { assertEquals(7, KotlinValue().value()) } }')
+        java_helper = sources / 'JavaHelper.java'
+        java_helper.write_text('public class JavaHelper { public static int base() { return 7; } }')
+        java_test = sources / 'JavaInteropTest.java'
+        java_test.write_text('import org.junit.Test; import static org.junit.Assert.*; '
+            'public class JavaInteropTest { @Test public void passes() { assertEquals(7, new KotlinValue().value()); } }')
         result = run_cli(0)
-        if 'OK (1 test)' not in result.stdout + result.stderr:
-            raise RuntimeError('Expected one real Kotlin JUnit test')
+        if 'OK (2 tests)' not in result.stdout + result.stderr:
+            raise RuntimeError('Expected real Java and Kotlin JUnit tests')
         bytecode = (classes / 'KotlinTest.class').read_bytes()
         if bytecode[:4] != b'\xca\xfe\xba\xbe' or int.from_bytes(bytecode[6:8], 'big') != 52:
             raise RuntimeError('Kotlin test must compile to Java 8 bytecode')
         kotlin_test.unlink()
+        removed_kotlin = run_cli(1)
+        if 'KotlinValue' not in removed_kotlin.stdout + removed_kotlin.stderr:
+            raise RuntimeError('Java must fail explicitly after its Kotlin dependency is removed')
+        if (classes / 'KotlinValue.class').exists():
+            raise RuntimeError('Removed Kotlin dependency bytecode survived')
+        java_helper.unlink()
+        java_test.unlink()
         run_cli(0)
         if classes.exists() and list(classes.rglob('*.class')):
             raise RuntimeError('Removed Kotlin test bytecode survived')
-        print('REAL KOTLIN JUNIT CLI: Java 8 bytecode, execution and removal passed', flush=True)
+        print('REAL KOTLIN JUNIT CLI: mixed Java/Kotlin references, Java 8 bytecode, execution and removal passed', flush=True)
     if args.jacoco_agent:
         cache = project / '.cache/deps'
         cache.mkdir(parents=True)
