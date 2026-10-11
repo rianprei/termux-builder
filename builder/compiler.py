@@ -161,6 +161,7 @@ def compile_kotlin(config):
 
         ksp_gen = ensure_dir(os.path.join(config.build_dir, "ksp", "gen"))
         ksp_classes = ensure_dir(os.path.join(config.build_dir, "ksp", "classes"))
+        ksp_resources = ensure_dir(os.path.join(config.build_dir, "ksp", "resources"))
         ksp_caches = ensure_dir(os.path.join(config.build_dir, "ksp", "caches"))
         ksp_base = ensure_dir(os.path.join(config.build_dir, "ksp"))
 
@@ -178,7 +179,7 @@ def compile_kotlin(config):
             "-P", f"plugin:com.google.devtools.ksp.symbol-processing:classOutputDir={ksp_classes}",
             "-P", f"plugin:com.google.devtools.ksp.symbol-processing:javaOutputDir={ksp_gen}",
             "-P", f"plugin:com.google.devtools.ksp.symbol-processing:kotlinOutputDir={ksp_gen}",
-            "-P", f"plugin:com.google.devtools.ksp.symbol-processing:resourceOutputDir={ksp_gen}",
+            "-P", f"plugin:com.google.devtools.ksp.symbol-processing:resourceOutputDir={ksp_resources}",
             "-P", f"plugin:com.google.devtools.ksp.symbol-processing:cachesDir={ksp_caches}",
             "-P", "plugin:com.google.devtools.ksp.symbol-processing:incremental=false",
             "-P", "plugin:com.google.devtools.ksp.symbol-processing:allWarningsAsErrors=false",

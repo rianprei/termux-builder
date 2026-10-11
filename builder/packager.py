@@ -6,36 +6,44 @@ from builder.utils import dex_sort_key, ensure_output_path, find_files, log
 
 
 def _processor_resource_entries(config):
-    if not getattr(config, "kapt_enabled", False):
-        return []
-    root = os.path.join(config.build_dir, "kapt", "classes")
-    ensure_output_path(config.build_dir, root, "KAPT resources")
+    entries = []
+    for enabled, relative, label in (
+        (getattr(config, "kapt_enabled", False), ("kapt", "classes"), "KAPT"),
+        (getattr(config, "ksp_enabled", False), ("ksp", "resources"), "KSP"),
+    ):
+        if enabled:
+            entries += _resource_entries(config.build_dir, os.path.join(config.build_dir, *relative), label)
+    return entries
+
+
+def _resource_entries(build_dir, root, label):
+    ensure_output_path(build_dir, root, f"{label} resources")
     if not os.path.lexists(root):
         return []
     if not os.path.isdir(root):
-        raise ValueError("KAPT resource output must be a directory")
+        raise ValueError(f"{label} resource output must be a directory")
     def scan_error(error):
-        raise RuntimeError(f"Cannot read KAPT resources: {error.filename or root}; check permissions and rerun the build") from None
+        raise RuntimeError(f"Cannot read {label} resources: {error.filename or root}; check permissions and rerun the build") from None
     entries = []
     for directory, directories, files in os.walk(root, onerror=scan_error):
         directories.sort()
         for child in directories:
-            ensure_output_path(root, os.path.join(directory, child), "KAPT resource directory")
+            ensure_output_path(root, os.path.join(directory, child), f"{label} resource directory")
         for filename in sorted(files):
             path = os.path.join(directory, filename)
-            ensure_output_path(root, path, "KAPT resource")
+            ensure_output_path(root, path, f"{label} resource")
             if not os.path.isfile(path):
-                raise ValueError(f"KAPT resource must be a regular file: {path}")
+                raise ValueError(f"{label} resource must be a regular file: {path}")
             if filename.endswith('.class'):
                 continue
             name = os.path.relpath(path, root).replace(os.sep, '/')
             parts = name.split('/')
             if '\\' in name or any(part in {'', '.', '..'} for part in parts):
-                raise ValueError(f"Unsafe KAPT resource path: {name}")
+                raise ValueError(f"Unsafe {label} resource path: {name}")
             if parts[0] in {'AndroidManifest.xml', 'resources.arsc', 'resources.pb', 'res', 'assets', 'lib', 'dex', 'manifest', 'root'} or name.endswith('.dex'):
-                raise ValueError(f"Reserved KAPT resource path: {name}")
+                raise ValueError(f"Reserved {label} resource path: {name}")
             if name.upper().startswith('META-INF/') and (name.upper() == 'META-INF/MANIFEST.MF' or name.upper().endswith(('.SF', '.RSA', '.DSA', '.EC'))):
-                raise ValueError(f"Signature metadata cannot be supplied by KAPT: {name}")
+                raise ValueError(f"Signature metadata cannot be supplied by {label}: {name}")
             entries.append((path, name))
     return entries
 

@@ -43,6 +43,9 @@ class Processor(private val generator: CodeGenerator) : SymbolProcessor {
             generator.createNewFile(Dependencies.ALL_FILES, "", "GeneratedJava", "java").use {
                 it.write("public class GeneratedJava { public static int value() { return 7; } }".toByteArray())
             }
+            generator.createNewFile(Dependencies.ALL_FILES, "", "generated-data", "txt").use {
+                it.write("real-ksp-resource".toByteArray())
+            }
             generated = true
         }
         return emptyList()
@@ -70,3 +73,7 @@ class Processor(private val generator: CodeGenerator) : SymbolProcessor {
     subprocess.run(['javac', '-proc:none', '-classpath', runtime_classpath, '-d', str(root), str(runner)], check=True)
     subprocess.run(['java', '-classpath', runtime_classpath, 'Runner'], check=True)
     print('REAL KSP: configured provider generated Kotlin/Java; both compiled and executed; Kotlin references generated Java')
+    resource = root / 'build/ksp/resources/generated-data.txt'
+    if resource.read_bytes() != b'real-ksp-resource':
+        raise RuntimeError('KSP resource was not separated from generated sources')
+    print('REAL KSP RESOURCE: provider output preserved in dedicated resource directory')

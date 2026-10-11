@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Separa recursos KSP de fontes geradas e integra sua coleta segura ao APK/modulo base AAB; fixture real verifica resourceOutputDir e testes negativos cobrem ambos os processadores.
+
 - Falha explicitamente quando a coleta de recursos KAPT nao consegue ler diretorios; recusa saidas que nao sejam diretorios/arquivos regulares e preserva o APK anterior.
 
 - Inclui recursos CLASS_OUTPUT do KAPT no APK e no modulo base AAB, com ordenacao deterministica, rejeicao de symlinks/caminhos reservados/conflitos e preservacao do APK anterior em falhas; amplia a fixture real com aapt2.
