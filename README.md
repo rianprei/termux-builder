@@ -18,6 +18,8 @@ O installer:
 
 Para cada ferramenta sem caminho explícito em `bins`, o builder procura primeiro no `PATH` e depois em `sdk-path/build-tools/<versão>` (ou no SDK resolvido). Assim, ferramentas nativas do Termux no `PATH` têm prioridade sobre as cópias do SDK.
 
+A CLI verifica a presença do `android.jar` resolvido antes de `build --clean`, dependências ou ferramentas de recursos, em APK e AAB. Sua ausência retorna código 1 e preserva a saída anterior, com orientação para `termux-builder setup`. O fallback nativo já existente continua disponível. Essa verificação de presença não certifica a integridade do JAR nem os recursos de framework; a toolchain real ainda pode recusá-lo. A fixture `tests/integration/verify_aab_preflight.py` cobre esses cenários negativos no host, além de ferramentas AAB e R8 ausentes.
+
 ## Quick Start
 
 ```bash

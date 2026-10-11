@@ -205,6 +205,8 @@ def _build_locked(args, config):
     if getattr(config, "r8_enabled", False) and config.build_type == "release" and not shutil.which("r8"):
         raise RuntimeError("r8 enabled but 'r8' binary not found — install: pkg install r8")
 
+    resources._resolve_android_jar(config)
+
     if args.clean:
         _do_clean(config)
 

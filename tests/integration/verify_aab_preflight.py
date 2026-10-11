@@ -1,4 +1,4 @@
-"""Exercise AAB and release R8 missing-tool diagnostics without deleting prior outputs."""
+"""Exercise AAB, release R8 and SDK diagnostics without deleting prior outputs."""
 import os
 from pathlib import Path
 import shutil
@@ -56,3 +56,25 @@ with tempfile.TemporaryDirectory(prefix='termux-builder-aab-preflight-') as temp
     if marker.read_bytes() != b'previous output fixture':
         raise RuntimeError('Missing release R8 deleted prior output')
     print('REAL RELEASE PREFLIGHT: r8 missing, exit 1, prior output preserved')
+
+    for aab in (False, True):
+        project = Path(temp) / ('sdk-aab' if aab else 'sdk-apk')
+        subprocess.run([sys.executable, '-m', 'builder', 'init', str(project)],
+            env=environment, check=True, capture_output=True)
+        config_path = project / 'project.yml'
+        config = yaml.safe_load(config_path.read_text())
+        config['sdk-path'] = str(project / 'absent-sdk')
+        config['bins'] = {'aapt2': sys.executable}
+        config_path.write_text(yaml.safe_dump(config))
+        marker = project / '.build/previous.apk'
+        marker.parent.mkdir()
+        marker.write_bytes(b'previous output fixture')
+        command = [sys.executable, '-m', 'builder', 'build', str(project), '--clean']
+        if aab:
+            command.append('--aab')
+        result = subprocess.run(command, env=environment, capture_output=True, text=True)
+        if result.returncode != 1 or 'android.jar not found' not in result.stdout + result.stderr:
+            raise RuntimeError('Missing SDK diagnostic/exit code mismatch: ' + result.stdout + result.stderr)
+        if not marker.is_file() or marker.read_bytes() != b'previous output fixture':
+            raise RuntimeError('Missing android.jar deleted prior output')
+        print('REAL SDK PREFLIGHT: ' + ('AAB' if aab else 'APK') + ', exit 1, prior output preserved')

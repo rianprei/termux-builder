@@ -29,7 +29,9 @@ class AabBuildCommandTests(unittest.TestCase):
             aab_enabled=False,
             bin_aapt2=sys.executable,
             abi_splits=False,
+            android_jar=os.path.join(self.tempdir.name, 'android.jar'),
         )
+        Path(self.config.android_jar).write_bytes(b'unit toolchain fixture')
         self.addCleanup(self.tempdir.cleanup)
         self.patches = ExitStack()
         self.addCleanup(self.patches.close)
@@ -93,6 +95,19 @@ class AabBuildCommandTests(unittest.TestCase):
                 cli._build(args)
             clean.assert_not_called()
             resolve.assert_not_called()
+
+    def test_missing_android_jar_fails_before_clean_or_dependency_resolution(self):
+        self.patch_build_bundle()
+        self.config.android_jar = os.path.join(self.tempdir.name, 'absent-android.jar')
+        for aab in (False, True):
+            with self.subTest(aab=aab), patch('builder.cli._do_clean') as clean, \
+                 patch('builder.deps.resolve') as resolve:
+                args = self.build_args(aab=aab)
+                args.clean = True
+                with self.assertRaisesRegex(FileNotFoundError, 'android.jar not found'):
+                    cli._build(args)
+                clean.assert_not_called()
+                resolve.assert_not_called()
 
     def test_unusable_aapt2_fails_before_aab_clean(self):
         self.patch_build_bundle()

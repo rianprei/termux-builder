@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Detecta android.jar ausente antes de clean/dependências/recursos em APK/AAB, reutilizando a resolução existente e preservando o fallback nativo. Testes reproduziram a execução tardia e a exclusão da saída; fixture CLI exige código 1, diagnóstico de SDK e preservação dos bytes. 297 testes e a fixture real mista Java/Kotlin com APK/AAB, recuperação e dependências removidas passaram no host. A presença do arquivo não comprova sua integridade.
+
 - Verifica KSP completo no Termux ARM64/Bionic, Android 16/API 36, Python 3.14.6/JDK 21.0.12, UID/contexto do aplicativo e CapEff=0. Geração acionada por Java, compilação mista, entradas/saídas somente Java, JVM 17/10, DEX/recursos, seis builds APK/quatro AAB e rebuilds sem clean passaram. Ferramentas nativas e bundletool em cache local; bootstrap no dispositivo, instalação e outros providers não verificados. Atualiza a matriz e remove limites nativos já superados.
 
 - Torna a fixture KSP executável no Termux sem /usr/bin/env, usando o Python atual no wrapper. Adiciona --toolchain-cache para reutilizar JARs locais validados: fluxo completo aprovado no host, sem alterar padrões da CI. A tentativa nativa reproduziu o shebang ausente; fixture completa aprovada após a correção.
