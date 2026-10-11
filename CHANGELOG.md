@@ -1,6 +1,8 @@
 ## Unreleased
 
-- Torna a fixture KSP executável no Termux sem /usr/bin/env, usando o Python atual no wrapper. Adiciona --toolchain-cache para reutilizar JARs locais validados: fluxo completo aprovado no host, sem alterar padrões da CI. A tentativa nativa reproduziu o shebang ausente e passou pela geração, JVM, APK e AAB após a correção; restante da fixture em dispositivo ainda em validação.
+- Verifica KSP completo no Termux ARM64/Bionic, Android 16/API 36, Python 3.14.6/JDK 21.0.12, UID/contexto do aplicativo e CapEff=0. Geração acionada por Java, compilação mista, entradas/saídas somente Java, JVM 17/10, DEX/recursos, seis builds APK/quatro AAB e rebuilds sem clean passaram. Ferramentas nativas e bundletool em cache local; bootstrap no dispositivo, instalação e outros providers não verificados. Atualiza a matriz e remove limites nativos já superados.
+
+- Torna a fixture KSP executável no Termux sem /usr/bin/env, usando o Python atual no wrapper. Adiciona --toolchain-cache para reutilizar JARs locais validados: fluxo completo aprovado no host, sem alterar padrões da CI. A tentativa nativa reproduziu o shebang ausente; fixture completa aprovada após a correção.
 
 - Detecta R8 ausente em release antes de clean/dependências/recursos, mantendo a verificação no DEX. Regressão unitária e fixture pública falharam antes da correção; agora o diagnóstico identifica R8, retorna 1 e preserva saída anterior. Cenário integrado à fixture da CI; 296 testes passaram no host.
 
