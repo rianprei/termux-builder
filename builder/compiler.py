@@ -203,7 +203,8 @@ def compile_kotlin(config):
         # Real kapt is 2 phases (same as Gradle's kaptGenerateStubsKotlin vs
         # compileKotlin tasks): phase 1 runs the annotation processor via
         # the kapt3 compiler plugin in stubsAndApt mode, which generates
-        # stub/source files but does NOT produce final .class output
+        # stub/source files but does NOT compile the application's .class output
+        # (processors may emit bytecode directly into classes_dir).
         # (verified: exit 0, kotlin_classes_dir stays empty after phase 1
         # alone). Phase 2 is a normal kotlinc compile that also includes
         # whatever .kt/.java sources kapt generated.
@@ -226,6 +227,8 @@ def compile_kotlin(config):
             "-P", "plugin:org.jetbrains.kotlin.kapt3:aptMode=stubsAndApt",
             "-P", "plugin:org.jetbrains.kotlin.kapt3:correctErrorTypes=true",
         ] + processor_args)
+
+        classpath = os.pathsep.join([classpath, classes_dir])
 
         from builder.utils import find_files as _ff
         generated_kt = _ff(sources_dir, ".kt")

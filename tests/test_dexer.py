@@ -12,6 +12,37 @@ from unittest.mock import patch
 from builder import deps, dexer, utils
 
 
+class KaptDexTests(unittest.TestCase):
+    def test_symlinked_kapt_output_is_rejected_before_dex(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            build = root / 'build'
+            (build / 'kapt').mkdir(parents=True)
+            outside = root / 'outside'
+            outside.mkdir()
+            (outside / 'Direct.class').write_bytes(b'class')
+            (build / 'kapt/classes').symlink_to(outside, target_is_directory=True)
+            config = SimpleNamespace(build_dir=str(build), java_classes_dir=str(build / 'java'),
+                kotlin_classes_dir=str(build / 'kotlin'), dex_dir=str(build / 'dex'), kapt_enabled=True)
+            with patch('builder.dexer._run_d8') as d8:
+                with self.assertRaises(ValueError):
+                    dexer.dex(config)
+            d8.assert_not_called()
+
+    def test_direct_processor_classes_reach_dex(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            binary = root / 'kapt/classes/Direct.class'
+            binary.parent.mkdir(parents=True)
+            binary.write_bytes(b'class')
+            config = SimpleNamespace(build_dir=temp, java_classes_dir=str(root / 'java'),
+                kotlin_classes_dir=str(root / 'kotlin'), dex_dir=str(root / 'dex'),
+                kapt_enabled=True, r8_enabled=False, build_type='debug')
+            with patch('builder.dexer._has_d8', return_value=True), patch('builder.dexer._run_d8') as d8, patch('builder.dexer._dex_libraries'):
+                dexer.dex(config)
+            self.assertEqual(d8.call_args.args[1], [str(binary)])
+
+
 def _build_library_cache_worker(start_barrier, results, values):
     try:
         start_barrier.wait(timeout=10)

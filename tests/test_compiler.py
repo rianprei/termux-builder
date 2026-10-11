@@ -212,6 +212,23 @@ public class Generator extends AbstractProcessor {
 
 
 class KotlinProcessorWiringTests(unittest.TestCase):
+    def test_kapt_binary_outputs_are_on_final_compiler_classpath(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / 'processor.jar').write_bytes(b'jar')
+            config = SimpleNamespace(
+                build_dir=temp, project_dir=temp, kotlin_classes_dir=str(root / 'kotlin'),
+                java_classes_dir=str(root / 'java'), find_kotlin_files=lambda: ['Main.kt'],
+                find_lib_jars=lambda: [], kapt_enabled=True, ksp_enabled=False,
+                annotation_processors=['processor.jar'], bin_kotlinc='kotlinc', compose=False,
+            )
+            with patch('builder.compiler._resolve_android_jar', return_value='android.jar'), patch(
+                'builder.compiler._effective_java_version', return_value=8
+            ), patch('builder.kapt.resolve_kapt_toolchain', return_value=(['compiler'], 'kapt.jar')), patch('builder.compiler.run') as run:
+                compiler.compile_kotlin(config)
+            args = run.call_args.args[0]
+            self.assertIn(str(root / 'kapt/classes'), args[args.index('-classpath') + 1].split(os.pathsep))
+
     def test_kapt_receives_resolved_processor_paths(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

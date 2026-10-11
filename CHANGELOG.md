@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Integra classes emitidas diretamente pelo KAPT ao classpath Kotlin/Java final e a coleta do DEX, com validacao de destino e fixture real de geracao e execucao de bytecode.
+
 - Limita a sondagem Kotlin a 30 segundos e diagnostica falhas ao iniciar o executavel sem propagar saida ou dados da excecao do subprocesso.
 
 - Recusa sondagem Kotlin com codigo de saida nao zero, consulta stdout e stderr para a versao e evita incluir a saida bruta do processo nos erros KAPT.

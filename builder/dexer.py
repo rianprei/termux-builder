@@ -7,6 +7,7 @@ from builder.utils import (
     _library_dex_cache_lock,
     run,
     ensure_dir,
+    ensure_output_path,
     find_files,
     log,
 )
@@ -19,6 +20,10 @@ def dex(config):
     java_classes = find_files(config.java_classes_dir, ".class")
     kotlin_classes = find_files(config.kotlin_classes_dir, ".class")
     all_classes = java_classes + kotlin_classes
+    if getattr(config, "kapt_enabled", False):
+        processor_classes = os.path.join(config.build_dir, "kapt", "classes")
+        ensure_output_path(config.build_dir, processor_classes, "KAPT classes")
+        all_classes += find_files(processor_classes, ".class")
 
     if not all_classes:
         raise RuntimeError("No .class files found — compilation may have failed")
