@@ -233,6 +233,8 @@ O download do bundletool usa a versão 1.18.3 e exige o SHA-256 fixado pelo proj
 
 A verificação AAB recusa entradas ZIP duplicadas, caminhos absolutos ou com traversal/componentes vazios, barras invertidas e symlinks antes de invocar bundletool/jarsigner. Todas as entradas passam por verificação de CRC do ZIP antes das ferramentas externas; CRC não comprova autenticidade. O manifesto base também precisa ter conteúdo; a fixture negativa verifica sua substituição por bytes vazios em uma cópia do AAB real. Essas verificações não substituem a validação do formato protobuf nem a assinatura JAR. O gate passou em AAB real pela CLI no host JDK 21/API 36/Build Tools 37.0.0. Após um build validado, execute `PYTHONPATH=. python tests/integration/verify_aab_archive.py /caminho/app.aab`: a fixture modifica apenas cópias temporárias e exige rejeição de entradas duplicadas ou inseguras. Está conectada ao AAB produzido na CI; execução remota e revalidação nativa deste gate permanecem não verificadas.
 
+A assinatura APK exige staging não vazio após o assinador e verificação `apksigner verify` antes de publicar. Retorno zero sem escrita no staging gera erro, preserva o APK anterior e remove a saída temporária; existência do arquivo não basta.
+
 A assinatura AAB usa o algoritmo escolhido pelo `jarsigner` para o tipo e tamanho da chave, mantendo SHA-256 nos digests do JAR. Chaves RSA e EC foram verificadas com ferramentas reais no host e no Termux. `bundletool validate` também aceita bundles sem assinatura: o pipeline verifica a assinatura JAR separadamente; validação estrutural não comprova assinatura nem confiança no certificado.
 
 ### Testes JUnit do projeto

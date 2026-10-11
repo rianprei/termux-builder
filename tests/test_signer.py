@@ -9,6 +9,27 @@ from builder.signer import sign, sign_apk
 
 
 class ApkSigningTests(unittest.TestCase):
+    def test_signer_success_without_output_does_not_publish_empty_staging(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            keystore = os.path.join(temp_dir, 'debug.keystore')
+            unsigned = os.path.join(temp_dir, 'unsigned.apk')
+            signed = os.path.join(temp_dir, 'signed.apk')
+            for path in (keystore, unsigned):
+                open(path, 'wb').close()
+            with open(signed, 'wb') as previous:
+                previous.write(b'previous APK')
+            config = SimpleNamespace(keystore_path=keystore,
+                keystore_store_pass='fixture', keystore_key_pass='fixture',
+                keystore_alias='debug', bin_apksigner='apksigner',
+                sign_v1=True, sign_v2=True, sign_v3=True, sign_v4=False)
+            with patch('builder.signer.run') as execute:
+                with self.assertRaisesRegex(RuntimeError, 'without producing'):
+                    sign_apk(config, unsigned, signed)
+                self.assertEqual(execute.call_count, 1)
+            with open(signed, 'rb') as previous:
+                self.assertEqual(previous.read(), b'previous APK')
+            self.assertFalse(any(name.startswith('.signed-') for name in os.listdir(temp_dir)))
+
     def test_signed_apk_is_verified_before_returning(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             keystore = os.path.join(temp_dir, "debug.keystore")

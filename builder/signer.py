@@ -170,7 +170,7 @@ def sign_apk(config, unsigned_path, signed_path):
             "--out", staging_path,
             "--in", unsigned_path,
         ], env=env)
-        if not os.path.isfile(staging_path):
+        if not os.path.isfile(staging_path) or os.path.getsize(staging_path) == 0:
             raise RuntimeError("apksigner reported success without producing a signed APK")
         if sign_v4 and (
             not os.path.isfile(staging_idsig_path)

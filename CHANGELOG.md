@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Recusa APK de staging vazio após o assinador: mkstemp já criava o arquivo, portanto mera existência não comprovava saída. Regressão simula sucesso sem escrita, exige falha antes de verify, preservação do APK anterior e limpeza do staging.
+
 - Mede o custo do gate CRC com benchmark reproduzível de ZIPs sintéticos de 1/16/64 MiB, nove amostras alternadas, hashes e resultados brutos. Separa tempo, alocações Python e RSS global; não apresenta o ensaio como build completo ou resultado Termux.
 
 - Verifica CRC de todas as entradas AAB com ZipFile.testzip antes de bundletool/jarsigner. Regressão altera o payload preservando o CRC original e exige rejeição antes dos subprocessos; fixture real de mutações cobre o mesmo caso. CRC verifica integridade do ZIP, não autenticidade.
