@@ -80,6 +80,9 @@ jobs:
 
           source = next(Path(sys.argv[1]).rglob("MainActivity.java"))
           source.write_text(source.read_text().replace("{", "{ static class DeletedMarker {}", 1))
+          source.with_name("DeletedService.aidl").write_text(
+              "package com.example.e2e; interface DeletedService { int value(); }"
+          )
           PY
           termux-builder build "$project"
           python3 - "$project" <<'PY'
@@ -91,8 +94,11 @@ jobs:
           with zipfile.ZipFile(project / ".build/termux-builder-e2e-debug.apk") as apk:
               if b"DeletedMarker" not in apk.read("classes.dex"):
                   raise SystemExit("Initial APK is missing the regression fixture")
+              if b"DeletedService" not in apk.read("classes.dex"):
+                  raise SystemExit("Initial APK is missing compiled AIDL")
           source = next(project.rglob("MainActivity.java"))
           source.write_text(source.read_text().replace(" static class DeletedMarker {}", "", 1))
+          source.with_name("DeletedService.aidl").unlink()
           PY
           termux-builder build "$project"
           termux-builder build "$project" --aab
@@ -119,12 +125,16 @@ jobs:
           with zipfile.ZipFile(apk_path) as apk:
               if b"DeletedMarker" in apk.read("classes.dex"):
                   raise SystemExit("Rebuilt APK contains a deleted inner class")
+              if b"DeletedService" in apk.read("classes.dex"):
+                  raise SystemExit("Rebuilt APK contains a deleted AIDL interface")
               apk_dex = [name for name in apk.namelist() if name.endswith(".dex")]
               if "classes.dex" not in apk_dex or len(apk_dex) < 2:
                   raise SystemExit("APK is missing application or resolved library DEX")
           with zipfile.ZipFile(aab_path) as aab:
               if b"DeletedMarker" in aab.read("base/dex/classes.dex"):
                   raise SystemExit("Rebuilt AAB contains a deleted inner class")
+              if b"DeletedService" in aab.read("base/dex/classes.dex"):
+                  raise SystemExit("Rebuilt AAB contains a deleted AIDL interface")
               aab_names = set(aab.namelist())
               required = {
                   "BundleConfig.pb",

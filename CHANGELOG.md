@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Remove apenas as fontes AIDL geradas antes de recompilar, inclusive apos apagar a ultima interface; valida o destino antes da limpeza e falha explicitamente quando ha fontes AIDL mas o compilador nao esta no PATH.
+
 - Limpa as classes Java/Kotlin antes da recompilacao, inclusive quando nao restam fontes, para impedir classes removidas no DEX; regressao com javac real e rebuild de APK/AAB na CI.
 
 - Endurece a resolucao Maven: coordenadas invalidas, POMs malformados, repositorios inacessiveis, redirects e artefatos ausentes agora encerram a operacao com erro; downloads sao limitados as origens HTTPS configuradas, usam temporarios exclusivos e nao promovem arquivos incompletos ao cache.

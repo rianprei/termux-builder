@@ -1,8 +1,13 @@
 import os
-from builder.utils import run, find_files, find_bin, ensure_dir, log
+import shutil
+from builder.utils import run, find_files, find_bin, ensure_dir, ensure_output_path, log
 
 
 def compile(config):
+    out_dir = os.path.join(config.gen_dir, "aidl")
+    ensure_output_path(config.build_dir, out_dir, "AIDL generated sources")
+    if os.path.lexists(out_dir):
+        shutil.rmtree(out_dir)
     aidl_dir = os.path.join(config.sources_dir)
     aidl_files = find_files(aidl_dir, ".aidl")
     if not aidl_files:
@@ -10,11 +15,10 @@ def compile(config):
 
     aidl_bin = find_bin("aidl")
     if not aidl_bin:
-        log.warning("aidl not found in PATH — skipping AIDL compilation")
-        return
+        raise RuntimeError("aidl not found in PATH — install Android Build Tools and add aidl to PATH")
 
     log.info("Compiling %d AIDL files", len(aidl_files))
-    out_dir = ensure_dir(os.path.join(config.gen_dir, "aidl"))
+    ensure_dir(out_dir)
 
     framework_aidl = os.path.join(
         config.sdk_dir, "platforms", f"android-{config.target_sdk}", "framework.aidl"
