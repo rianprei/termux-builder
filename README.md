@@ -226,6 +226,8 @@ src/jniLibs/
 
 ## Benchmark do cache DEX de bibliotecas
 
+Java e Kotlin recompilam as fontes em diretórios de classes limpos, para que classes removidas não permaneçam no DEX. Isso também vale quando não restam fontes de uma linguagem. O cache de DEX das bibliotecas é separado dessa limpeza; não há cache incremental da compilação das fontes da aplicação.
+
 Comparação local entre `15e09c4` e `9ea1e8b`, em Linux x86_64, OpenJDK 25.0.4.1, Build Tools 37.0.0 e plataforma `android-36`. Foram executadas 9 amostras intercaladas por revisão. Cada amostra usa um JAR Java pequeno, chama `builder.dexer._dex_libraries(config, use_d8=True)` uma vez sem cache e uma vez com cache; o harness cronometra com `time.perf_counter`, compara o SHA-256 do DEX e lê o pico de memória dos processos filhos.
 
 | Medida | `15e09c4` | `9ea1e8b` |

@@ -44,7 +44,7 @@ class EffectiveJavaVersionTests(unittest.TestCase):
                 view_binding=False,
                 java_classes_dir=str(root / "classes"),
                 android_jar=str(android_jar),
-                build_dir=str(root / "build"),
+                build_dir=str(root),
             )
 
             with patch.dict(os.environ, {"PATH": str(empty_path)}):
@@ -58,3 +58,63 @@ class EffectiveJavaVersionTests(unittest.TestCase):
 
             javac_compile.assert_called_once()
             ecj_compile.assert_not_called()
+
+
+class CompilerOutputInvalidationTests(unittest.TestCase):
+    def test_removing_all_sources_removes_previous_classes(self):
+        for language in ("java", "kotlin"):
+            with self.subTest(language=language), tempfile.TemporaryDirectory() as tempdir:
+                output = Path(tempdir) / "classes"
+                output.mkdir()
+                (output / "Deleted.class").write_bytes(b"obsolete")
+                config = SimpleNamespace(
+                    build_dir=tempdir, java_classes_dir=str(output), kotlin_classes_dir=str(output),
+                    find_java_files=lambda base_dir=None: [],
+                    find_kotlin_files=lambda: [], gen_dir=tempdir, view_binding=False,
+                )
+                getattr(compiler, "compile_" + language)(config)
+                self.assertFalse((output / "Deleted.class").exists())
+
+    def test_real_javac_rebuild_removes_deleted_inner_class(self):
+        import shutil
+        if shutil.which("javac") is None:
+            self.skipTest("real javac unavailable")
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            source = root / "Main.java"
+            output = root / "classes"
+            config = SimpleNamespace(
+                find_java_files=lambda base_dir=None: [str(source)] if base_dir is None else [],
+                gen_dir=str(root / "gen"), view_binding=False,
+                build_dir=tempdir, java_classes_dir=str(output), find_lib_jars=lambda: [],
+                bin_javac=shutil.which("javac"), annotation_processors=[],
+            )
+            with patch("builder.compiler._resolve_android_jar", return_value=tempdir), patch(
+                "builder.compiler._effective_java_version", return_value=8
+            ):
+                source.write_text("public class Main { static class Deleted {} }", encoding="utf-8")
+                compiler.compile_java(config)
+                self.assertTrue((output / "Main$Deleted.class").exists())
+                source.write_text("public class Main {}", encoding="utf-8")
+                compiler.compile_java(config)
+                self.assertTrue((output / "Main.class").exists())
+                self.assertFalse((output / "Main$Deleted.class").exists())
+
+
+    def test_symlinked_ancestor_does_not_delete_external_classes(self):
+        for language in ("java", "kotlin"):
+            with self.subTest(language=language), tempfile.TemporaryDirectory() as tempdir:
+                root = Path(tempdir)
+                build = root / "build"
+                build.mkdir()
+                outside = root / "outside"
+                output = outside / language
+                output.mkdir(parents=True)
+                sentinel = output / "Keep.class"
+                sentinel.write_bytes(b"keep")
+                (build / "classes").symlink_to(outside, target_is_directory=True)
+                config = SimpleNamespace(build_dir=str(build))
+                setattr(config, language + "_classes_dir", str(build / "classes" / language))
+                with self.assertRaises(ValueError):
+                    getattr(compiler, "compile_" + language)(config)
+                self.assertEqual(sentinel.read_bytes(), b"keep")

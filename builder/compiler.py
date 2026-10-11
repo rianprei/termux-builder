@@ -1,6 +1,6 @@
 import os
 import shutil
-from builder.utils import run, ensure_dir, log
+from builder.utils import run, ensure_dir, ensure_output_path, log
 
 # ecj.jar paths (Termux native — no JDK needed)
 _ECJ_JAR = "/data/data/com.termux/files/usr/share/dex/ecj.jar"
@@ -39,6 +39,9 @@ def _resolve_android_jar(config):
 
 
 def compile_java(config):
+    ensure_output_path(config.build_dir, config.java_classes_dir, "Java classes")
+    if os.path.lexists(config.java_classes_dir):
+        shutil.rmtree(config.java_classes_dir)
     java_files = config.find_java_files()
     gen_java = config.find_java_files(config.gen_dir)
     binding_java = config.find_java_files(config.binding_dir) if config.view_binding else []
@@ -119,6 +122,9 @@ def _resolve_processor_jars(config, processors):
 
 
 def compile_kotlin(config):
+    ensure_output_path(config.build_dir, config.kotlin_classes_dir, "Kotlin classes")
+    if os.path.lexists(config.kotlin_classes_dir):
+        shutil.rmtree(config.kotlin_classes_dir)
     kt_files = config.find_kotlin_files()
     if not kt_files:
         return

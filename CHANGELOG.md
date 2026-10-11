@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Limpa as classes Java/Kotlin antes da recompilacao, inclusive quando nao restam fontes, para impedir classes removidas no DEX; regressao com javac real e rebuild de APK/AAB na CI.
+
 - Endurece a resolucao Maven: coordenadas invalidas, POMs malformados, repositorios inacessiveis, redirects e artefatos ausentes agora encerram a operacao com erro; downloads sao limitados as origens HTTPS configuradas, usam temporarios exclusivos e nao promovem arquivos incompletos ao cache.
 - Valida o formato do `.sha1` retornado pelo repositorio e documenta quando a verificacao do checksum foi omitida; adiciona regressao para symlink em temporario, falha de rede e dependencias ausentes.
 - Separa cache e artefatos extraidos por `groupId`, confere SHA-256 ao reutilizar binarios e arquivos expandidos, e registra coordenada, origem e hashes para auditoria local.
