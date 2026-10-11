@@ -15,14 +15,16 @@ from builder import compiler, ksp, dexer, packager, signer
 
 parser = argparse.ArgumentParser(description='Verify real KSP; optionally build and sign a real APK with SDK tools')
 parser.add_argument('--android-jar')
+parser.add_argument('--toolchain-cache', help='Reuse a local KSP/Kotlin/bundletool cache (no bootstrap download when complete)')
 for tool in ('d8', 'dexdump', 'aapt2', 'apksigner'):
     parser.add_argument('--' + tool, default=tool)
 options = parser.parse_args()
 
 with tempfile.TemporaryDirectory(prefix='real-ksp-') as temp:
     root = Path(temp)
+    toolchain_cache = str(Path(options.toolchain_cache).resolve()) if options.toolchain_cache else str(root / 'cache')
     config = SimpleNamespace(
-        cache_dir=str(root / 'cache'), build_dir=str(root / 'build'), project_dir=temp,
+        cache_dir=toolchain_cache, build_dir=str(root / 'build'), project_dir=temp,
         kotlin_classes_dir=str(root / 'build/kotlin'), java_classes_dir=str(root / 'build/java'),
         kapt_enabled=False, ksp_enabled=True, annotation_processors=['processor.jar'], compose=False,
         bin_javac=shutil.which('javac'), bin_d8='d8', java_version=8, android_jar=str(root / 'android.jar'),
@@ -31,11 +33,11 @@ with tempfile.TemporaryDirectory(prefix='real-ksp-') as temp:
         pass
     prefix, plugin = ksp.setup_ksp_toolchain(config)
     wrapper = root / 'kotlinc'
-    wrapper.write_text('#!/usr/bin/env python3\nimport os,sys\nprefix=' + repr(prefix) + '\nos.execv(prefix[0],prefix+sys.argv[1:])\n')
+    wrapper.write_text('#!' + sys.executable + '\nimport os,sys\nprefix=' + repr(prefix) + '\nos.execv(prefix[0],prefix+sys.argv[1:])\n')
     wrapper.chmod(0o755)
     config.bin_kotlinc = str(wrapper)
     jars = prefix[prefix.index('-cp') + 1].split(os.pathsep)
-    api = root / 'cache/ksp' / ('symbol-processing-api-' + ksp._KSP_VERSION + '.jar')
+    api = Path(toolchain_cache) / 'ksp' / ('symbol-processing-api-' + ksp._KSP_VERSION + '.jar')
     stdlib = next(jar for jar in jars if Path(jar).name == 'kotlin-stdlib.jar')
     processor_source = root / 'Provider.kt'
     processor_source.write_text('''
@@ -166,7 +168,7 @@ class Processor(private val generator: CodeGenerator) : SymbolProcessor {
         java_consumer.write_text('@Deprecated public class JavaConsumer { public static int value() { return new Generated().value() + GeneratedJava.value() + JavaSourceSeen.value(); } }')
         android_jar = Path(config.android_jar)
         raw = {
-            'name': 'ksp-cli', 'cache-path': str(root / 'cache'), 'libs-path': 'libraries',
+            'name': 'ksp-cli', 'cache-path': toolchain_cache, 'libs-path': 'libraries',
             'annotation-processors': [str(root / 'processor.jar')],
             'android': {'ksp': True, 'target-sdk': int(android_jar.parent.name.removeprefix('android-')),
                 'sdk-path': str(android_jar.parents[2]), 'java-version': 8,

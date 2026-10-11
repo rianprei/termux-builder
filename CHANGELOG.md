@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Torna a fixture KSP executável no Termux sem /usr/bin/env, usando o Python atual no wrapper. Adiciona --toolchain-cache para reutilizar JARs locais validados: fluxo completo aprovado no host, sem alterar padrões da CI. A tentativa nativa reproduziu o shebang ausente e passou pela geração, JVM, APK e AAB após a correção; restante da fixture em dispositivo ainda em validação.
+
 - Detecta R8 ausente em release antes de clean/dependências/recursos, mantendo a verificação no DEX. Regressão unitária e fixture pública falharam antes da correção; agora o diagnóstico identifica R8, retorna 1 e preserva saída anterior. Cenário integrado à fixture da CI; 296 testes passaram no host.
 
 - Elimina falso sucesso com `compose: true` sem plugin: exige compose-compiler.jar na CLI antes de clean/dependências/recursos e na compilação direta. Fixture real reproduziu o código 0 anterior; agora exige código 1 em APK/AAB, preservação dos bytes dos artefatos e recuperação após desabilitar Compose. 295 testes passaram; compilação Compose positiva continua não verificada.
