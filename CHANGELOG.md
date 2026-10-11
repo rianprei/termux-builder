@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Reforça a fixture JaCoCo real: exige HTML reconhecível, compara todos os bytes do relatório publicado antes/depois da falha de geração e verifica remoção do staging. Passou no host JDK 21; nova execução nativa bloqueada por ausência do diretório files e dos executáveis Python/Java do Termux no dispositivo conectado.
+
 - Gera relatórios JaCoCo em staging e exige XML parseável com raiz report e index HTML antes de publicação. Regressões recusam saída ausente, malformada, raiz incorreta e HTML ausente sem alterar o relatório anterior; staging é limpo. Publicação por cópia preserva arquivos não substituídos e não é atômica.
 
 - Protege destinos de relatório JaCoCo: recusa symlinks no caminho ou na árvore de saída, traversal ambíguo, arquivos especiais e hard links antes de obter a ferramenta ou executar Java. Regressões preservam o arquivo externo; geração real de relatórios e falha com bytecode truncado continuam verificadas no host.

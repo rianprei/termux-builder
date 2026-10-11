@@ -123,12 +123,24 @@ with tempfile.TemporaryDirectory(prefix='termux-builder-junit-') as temp:
                 'public class PassingTest { @Test public void passes() { assertEquals(' + str(value) +
                 ', CoverageTarget.choose(' + flag + ')); } }')
             run_cli(0, coverage=True)
+            html = (project / '.build/coverage/index.html').read_text(encoding='utf-8')
+            if '<html' not in html.lower() or 'JaCoCo' not in html:
+                raise RuntimeError('Expected actual JaCoCo HTML report')
             report = ET.parse(project / '.build/coverage/coverage.xml')
             branch = report.find(".//class[@name='CoverageTarget']/counter[@type='BRANCH']")
             if branch is None or branch.attrib != {'type': 'BRANCH', 'missed': '1', 'covered': '1'}:
                 raise RuntimeError('Coverage contains branches from a previous execution')
+        coverage_dir = project / '.build/coverage'
+        previous_report = {str(path.relative_to(coverage_dir)): path.read_bytes()
+            for path in coverage_dir.rglob('*') if path.is_file()}
         (kotlin_classes / 'Corrupt.class').write_bytes((app_classes / 'CoverageTarget.class').read_bytes()[:20])
         failed_report = run_cli(1, coverage=True)
         if 'OK (1 test)' not in failed_report.stdout + failed_report.stderr or 'Coverage report:' in failed_report.stdout + failed_report.stderr:
             raise RuntimeError('Report failure must follow passing JUnit without announcing a successful report')
+        retained_report = {str(path.relative_to(coverage_dir)): path.read_bytes()
+            for path in coverage_dir.rglob('*') if path.is_file()}
+        if retained_report != previous_report:
+            raise RuntimeError('Failed generation changed the previously published report')
+        if list((project / '.build').glob('.jacoco-report-*')):
+            raise RuntimeError('JaCoCo staging survived handled report failure')
         print('REAL JACOCO CLI: independent branch coverage and report failure exit status passed', flush=True)
