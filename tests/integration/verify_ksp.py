@@ -178,3 +178,18 @@ class Processor(private val generator: CodeGenerator) : SymbolProcessor {
         if not {'LGenerated;', 'LGeneratedJava;', 'LMain;'}.issubset(descriptors):
             raise RuntimeError('Generated KSP class definitions missing from CLI APK')
         print('REAL KSP CLI: project.yml build produced signature-verified APK containing processor resource')
+        raw['android']['ksp'] = False
+        raw['annotation-processors'] = []
+        (project / 'project.yml').write_text(yaml.safe_dump(raw))
+        (project / 'src/java/Main.kt').write_text('class Main { fun value(): Int = 0 }')
+        subprocess.run([sys.executable, '-m', 'builder', 'build', str(project)], env=environment, check=True)
+        subprocess.run([options.apksigner, 'verify', str(artifact)], check=True)
+        with zipfile.ZipFile(artifact) as archive:
+            if archive.testzip() or 'generated-data.txt' in archive.namelist():
+                raise RuntimeError('Stale KSP resource survived CLI rebuild')
+            cli_dex.write_bytes(archive.read('classes.dex'))
+        inspected = subprocess.run([options.dexdump, '-f', str(cli_dex)], check=True, capture_output=True, text=True)
+        descriptors = set(re.findall(r"Class descriptor\s*:\s*'([^']+)'", inspected.stdout))
+        if {'LGenerated;', 'LGeneratedJava;', 'LMain;'}.intersection(descriptors) != {'LMain;'}:
+            raise RuntimeError('Stale KSP class definitions survived CLI rebuild')
+        print('REAL KSP CLI REBUILD: changed project.yml honored without clean; generated classes/resource removed; signature verified')

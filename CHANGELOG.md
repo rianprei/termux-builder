@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Verifica rebuild pela CLI sem clean apos desabilitar KSP em project.yml, conferindo remocao das classes/recursos gerados e assinatura do APK final.
+
 - Exercita o build KSP pela CLI com project.yml real, biblioteca Kotlin local e senhas por ambiente; verifica assinatura, recurso e definicoes de classe no DEX do APK final.
 
 - Verifica rebuild real de APK assinado apos desabilitar KSP: remove classes e recurso gerados, inspeciona o novo DEX e valida novamente a assinatura.
