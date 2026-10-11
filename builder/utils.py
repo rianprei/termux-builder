@@ -78,7 +78,7 @@ def find_files(base_dir, suffix):
         for f in files:
             if f.endswith(suffix):
                 result.append(os.path.join(root, f))
-    return result
+    return sorted(result)
 
 
 def path_is_within(root, path):

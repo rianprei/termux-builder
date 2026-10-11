@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Ordena deterministicamente os resultados da descoberta compartilhada de arquivos, eliminando dependencia da ordem de enumeracao do filesystem.
+
 - Faz a descoberta compartilhada de arquivos falhar explicitamente em erros de leitura de diretorios, preservando o retorno vazio para diretorios opcionais ausentes.
 
 - Valida cada classe KAPT antes de invocar a toolchain DEX, recusando symlinks e arquivos especiais e ordenando entradas deterministicamente.
