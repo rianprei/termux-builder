@@ -3,7 +3,7 @@ import stat
 import zipfile
 import hashlib
 import tempfile
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 import requests
 from builder.utils import (
     dex_sort_key, ensure_dir, ensure_output_path, find_bin, find_files, log, run, variant_name,
@@ -12,6 +12,42 @@ from builder.utils import (
 _BUNDLETOOL_VERSION = "1.18.3"
 _BUNDLETOOL_URL = f"https://github.com/google/bundletool/releases/download/{_BUNDLETOOL_VERSION}/bundletool-all-{_BUNDLETOOL_VERSION}.jar"
 _BUNDLETOOL_SHA256 = "a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29"
+_BUNDLETOOL_MAX_BYTES = 64 * 1024 * 1024
+
+
+def _bundletool_download_response():
+    url = _BUNDLETOOL_URL
+    for _ in range(6):
+        try:
+            parsed = urlsplit(url)
+            port = parsed.port
+        except ValueError:
+            raise RuntimeError("Invalid bundletool redirect URL") from None
+        if (parsed.scheme != "https" or parsed.hostname not in {
+                "github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com"} or
+                parsed.username is not None or parsed.password is not None or
+                parsed.fragment or port not in (None, 443)):
+            raise RuntimeError("bundletool redirect requires trusted HTTPS hosts without credentials or alternative ports")
+        response = requests.get(url, timeout=120, stream=True, allow_redirects=False)
+        accepted = False
+        try:
+            response.raise_for_status()
+            if response.status_code == 200:
+                accepted = True
+                return response
+            if response.status_code not in (301, 302, 303, 307, 308):
+                raise RuntimeError("bundletool download requires HTTP 200")
+            location = response.headers.get("Location")
+            if not location:
+                raise RuntimeError("bundletool redirect is missing Location")
+            try:
+                url = urljoin(url, location)
+            except ValueError:
+                raise RuntimeError("Invalid bundletool redirect URL") from None
+        finally:
+            if not accepted:
+                response.close()
+    raise RuntimeError("bundletool download exceeded five redirects")
 
 
 def _find_bundletool(config):
@@ -45,8 +81,7 @@ def _download_bundletool(config):
     log.info("Downloading bundletool %s", _BUNDLETOOL_VERSION)
     response = None
     try:
-        response = requests.get(_BUNDLETOOL_URL, timeout=120, stream=True, allow_redirects=True)
-        response.raise_for_status()
+        response = _bundletool_download_response()
         parsed_url = urlsplit(response.url or _BUNDLETOOL_URL)
         if parsed_url.scheme != "https" or parsed_url.hostname not in {
             "github.com",
@@ -59,8 +94,12 @@ def _download_bundletool(config):
         file_obj = os.fdopen(fd, "wb")
         fd = None
         with file_obj as f:
+            total = 0
             for chunk in response.iter_content(8192):
                 if chunk:
+                    total += len(chunk)
+                    if total > _BUNDLETOOL_MAX_BYTES:
+                        raise RuntimeError("bundletool download exceeded its size limit")
                     digest.update(chunk)
                     f.write(chunk)
         actual_digest = digest.hexdigest()
@@ -69,12 +108,12 @@ def _download_bundletool(config):
                 f"bundletool SHA-256 mismatch: expected {_BUNDLETOOL_SHA256}, got {actual_digest}"
             )
         os.replace(tmp, dest)
-    except requests.RequestException as e:
+    except requests.RequestException as error:
         raise RuntimeError(
-            f"bundletool download failed: {e}. "
+            f"bundletool download failed ({type(error).__name__}); check network access. "
             f"Manually place bundletool-all-{_BUNDLETOOL_VERSION}.jar at {dest}, "
             "or install a 'bundletool' binary in PATH."
-        )
+        ) from None
     finally:
         if response is not None:
             response.close()

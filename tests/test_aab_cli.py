@@ -7,7 +7,8 @@ import unittest
 import zipfile
 from contextlib import ExitStack
 from types import SimpleNamespace
-from unittest.mock import patch
+from pathlib import Path
+from unittest.mock import Mock, patch
 
 from builder import cli
 
@@ -440,6 +441,7 @@ class AabBuildCommandTests(unittest.TestCase):
         tmp_path = os.path.join(out_dir, f"bundletool-all-{aab._BUNDLETOOL_VERSION}.jar.tmp")
         os.symlink(external_file, tmp_path)
         response = SimpleNamespace(
+            status_code=200,
             raise_for_status=lambda: None,
             iter_content=lambda size: [b"jar-bytes"],
             url=aab._BUNDLETOOL_URL,
@@ -462,6 +464,7 @@ class AabBuildCommandTests(unittest.TestCase):
 
         cache_dir = os.path.join(self.tempdir.name, "cache")
         response = SimpleNamespace(
+            status_code=200,
             raise_for_status=lambda: None,
             iter_content=lambda size: [b"unexpected bytes"],
             url=aab._BUNDLETOOL_URL,
@@ -476,11 +479,104 @@ class AabBuildCommandTests(unittest.TestCase):
         out_dir = os.path.join(cache_dir, "bundletool")
         self.assertEqual(os.listdir(out_dir), [])
 
+    def test_bundletool_rejects_redirect_before_contacting_untrusted_origin(self):
+        from builder import aab
+        response = SimpleNamespace(status_code=302, headers={'Location': 'https://example.invalid/private'},
+            url=aab._BUNDLETOOL_URL, iter_content=lambda size: [b'jar'],
+            raise_for_status=lambda: None, close=Mock())
+        with patch('builder.aab.find_bin', return_value='java'), patch(
+            'builder.aab.requests.get', return_value=response
+        ) as get:
+            with self.assertRaisesRegex(RuntimeError, 'trusted HTTPS'):
+                aab._download_bundletool(SimpleNamespace(cache_dir=self.tempdir.name))
+        get.assert_called_once()
+        self.assertFalse(get.call_args.kwargs['allow_redirects'])
+        response.close.assert_called_once()
+
+    def test_bundletool_download_size_failure_preserves_existing_cache(self):
+        from builder import aab
+        directory = os.path.join(self.tempdir.name, 'bundletool')
+        os.makedirs(directory)
+        cached = os.path.join(directory, 'bundletool-all-' + aab._BUNDLETOOL_VERSION + '.jar')
+        Path(cached).write_bytes(b'keep')
+        response = SimpleNamespace(status_code=200, url=aab._BUNDLETOOL_URL,
+            raise_for_status=lambda: None, iter_content=lambda size: [b'123', b'45'], close=Mock())
+        with patch('builder.aab.find_bin', return_value='java'), patch(
+            'builder.aab.requests.get', return_value=response
+        ), patch('builder.aab._BUNDLETOOL_MAX_BYTES', 4):
+            with self.assertRaisesRegex(RuntimeError, 'size limit'):
+                aab._download_bundletool(SimpleNamespace(cache_dir=self.tempdir.name))
+        self.assertEqual(Path(cached).read_bytes(), b'keep')
+        self.assertEqual(os.listdir(directory), [os.path.basename(cached)])
+        response.close.assert_called_once()
+
+    def test_bundletool_redirect_policy_rejects_ambiguous_urls(self):
+        from builder import aab
+        for location in ('http://github.com/file', 'https://user:pass@github.com/file',
+                'https://@github.com/file', 'https://:@github.com/file',
+                'https://github.com:8443/file', 'https://github.com/file#fragment', 'https://[invalid'):
+            with self.subTest(location=location):
+                response = SimpleNamespace(status_code=302, headers={'Location': location},
+                    raise_for_status=lambda: None, close=Mock())
+                with patch('builder.aab.find_bin', return_value='java'), patch(
+                    'builder.aab.requests.get', return_value=response
+                ) as get:
+                    with self.assertRaises(RuntimeError):
+                        aab._download_bundletool(SimpleNamespace(cache_dir=self.tempdir.name))
+                get.assert_called_once()
+                self.assertFalse(get.call_args.kwargs['allow_redirects'])
+                response.close.assert_called_once()
+
+    def test_bundletool_authorized_redirect_downloads_and_closes_responses(self):
+        from builder import aab
+        redirected = SimpleNamespace(status_code=302,
+            headers={'Location': 'https://release-assets.githubusercontent.com/file?token=temporary'},
+            raise_for_status=lambda: None, close=Mock())
+        downloaded = SimpleNamespace(status_code=200, url='https://release-assets.githubusercontent.com/file',
+            raise_for_status=lambda: None, iter_content=lambda size: [b'jar'], close=Mock())
+        with patch('builder.aab.find_bin', return_value='java'), patch(
+            'builder.aab.requests.get', side_effect=[redirected, downloaded]
+        ) as get, patch('builder.aab._BUNDLETOOL_SHA256', aab.hashlib.sha256(b'jar').hexdigest()):
+            command = aab._download_bundletool(SimpleNamespace(cache_dir=self.tempdir.name))
+        self.assertEqual(Path(command[-1]).read_bytes(), b'jar')
+        self.assertEqual(get.call_count, 2)
+        self.assertTrue(all(not call.kwargs['allow_redirects'] for call in get.call_args_list))
+        redirected.close.assert_called_once()
+        downloaded.close.assert_called_once()
+
+    def test_bundletool_network_error_does_not_expose_signed_url(self):
+        from builder import aab
+        import traceback
+        token = 'SECRET_SIGNED_QUERY'
+        with patch('builder.aab.find_bin', return_value='java'), patch(
+            'builder.aab.requests.get', side_effect=aab.requests.ConnectionError('https://release-assets.githubusercontent.com/file?token=' + token)
+        ):
+            try:
+                aab._download_bundletool(SimpleNamespace(cache_dir=self.tempdir.name))
+            except RuntimeError:
+                self.assertNotIn(token, traceback.format_exc())
+            else:
+                self.fail('Expected an explicit network failure')
+
+    def test_bundletool_redirect_limit_closes_every_response(self):
+        from builder import aab
+        responses = [SimpleNamespace(status_code=302, headers={'Location': aab._BUNDLETOOL_URL},
+            raise_for_status=lambda: None, close=Mock()) for _ in range(6)]
+        with patch('builder.aab.find_bin', return_value='java'), patch(
+            'builder.aab.requests.get', side_effect=responses
+        ) as get:
+            with self.assertRaisesRegex(RuntimeError, 'five redirects'):
+                aab._download_bundletool(SimpleNamespace(cache_dir=self.tempdir.name))
+        self.assertEqual(get.call_count, 6)
+        for response in responses:
+            response.close.assert_called_once()
+
     def test_bundletool_download_rejects_an_insecure_redirect(self):
         from builder import aab
 
         cache_dir = os.path.join(self.tempdir.name, "cache")
         response = SimpleNamespace(
+            status_code=200,
             raise_for_status=lambda: None,
             iter_content=lambda size: [b"unexpected bytes"],
             url="http://release-assets.githubusercontent.com/bundletool.jar",

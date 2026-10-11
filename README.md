@@ -207,6 +207,8 @@ src/jniLibs/
 
 ## Matriz de compatibilidade verificada
 
+O download do bundletool usa a versão 1.18.3 e exige o SHA-256 fixado pelo projeto antes de publicar ou reutilizar o JAR do cache. Redirecionamentos são verificados antes de cada conexão: no máximo cinco, somente HTTPS em `github.com`, `release-assets.githubusercontent.com` ou `objects.githubusercontent.com`, sem credenciais, fragmentos ou portas alternativas. O conteúdo baixado tem limite de 64 MiB; falhas preservam o cache anterior e removem staging. Erros de rede não reproduzem URLs assinadas. Um executável `bundletool` instalado no PATH continua tendo precedência sobre o JAR do cache.
+
 | Fluxo ou recurso | Estado | Escopo verificado / limite |
 |------------------|--------|----------------------------|
 | `project.yml` nativo, Java + AndroidX → APK assinado | VALIDATED | Build E2E em Linux x86_64, OpenJDK 25.0.4.1, Android API 36 e Build Tools 37.0.0 com `androidx.lifecycle:lifecycle-runtime:2.6.1`; manifesto e DEX presentes, `apksigner verify` aprovado; APK de 1.230.021 bytes. |
