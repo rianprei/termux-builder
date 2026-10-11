@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Gera relatórios JaCoCo em staging e exige XML parseável com raiz report e index HTML antes de publicação. Regressões recusam saída ausente, malformada, raiz incorreta e HTML ausente sem alterar o relatório anterior; staging é limpo. Publicação por cópia preserva arquivos não substituídos e não é atômica.
+
 - Protege destinos de relatório JaCoCo: recusa symlinks no caminho ou na árvore de saída, traversal ambíguo, arquivos especiais e hard links antes de obter a ferramenta ou executar Java. Regressões preservam o arquivo externo; geração real de relatórios e falha com bytecode truncado continuam verificadas no host.
 
 - Verifica testes JVM mistos Java/Kotlin no Termux ARM64/Android 16, com JDK nativo 21.0.12 e JARs portáveis Kotlin 1.9.24. Confirma referências nos dois sentidos, dois testes JUnit, bytecode Java 8 e invalidação da dependência removida sob UID/contexto do aplicativo, sem capacidades Linux. Não comprova build Kotlin de APK/AAB ou KAPT/KSP nativos.

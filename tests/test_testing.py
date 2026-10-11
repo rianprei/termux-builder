@@ -9,6 +9,27 @@ from builder.testing import run_tests, _find_test_classes, _write_coverage_repor
 
 
 class TestOutputInvalidationTests(unittest.TestCase):
+    def test_coverage_requires_fresh_valid_report_before_publication(self):
+        for payload in ('missing', 'malformed', 'wrong_root', 'no_html'):
+            with self.subTest(payload=payload), tempfile.TemporaryDirectory() as temp:
+                report = Path(temp) / 'report'
+                report.mkdir()
+                previous = report / 'coverage.xml'
+                previous.write_text('previous result')
+                config = SimpleNamespace(build_dir=temp, java_classes_dir='java',
+                    kotlin_classes_dir='kotlin', sources_dir='src')
+                def generate(command):
+                    output = Path(command[command.index('--xml') + 1])
+                    if payload != 'missing':
+                        output.write_text('<broken' if payload == 'malformed' else
+                            '<other/>' if payload == 'wrong_root' else '<report name="fixture"/>')
+                with mock.patch('builder.testing._find_jacoco', return_value='cli.jar'), \
+                     mock.patch('builder.testing.run', side_effect=generate):
+                    with self.assertRaisesRegex(RuntimeError, 'Coverage report'):
+                        _write_coverage_report(config, 'exec', str(report))
+                self.assertEqual(previous.read_text(), 'previous result')
+                self.assertEqual(list(Path(temp).iterdir()), [report])
+
     def test_coverage_report_refuses_unsafe_existing_destinations(self):
         for kind in ('root_symlink', 'nested_symlink', 'fifo', 'file', 'hardlink'):
             with self.subTest(kind=kind), tempfile.TemporaryDirectory() as temp:

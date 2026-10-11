@@ -3,6 +3,7 @@ import hashlib
 import shutil
 import stat
 import tempfile
+import xml.etree.ElementTree as ET
 import requests
 from builder.utils import run, find_files, find_bin, log, ensure_dir
 
@@ -214,14 +215,24 @@ def _write_coverage_report(config, exec_file, report_dir):
     java = find_bin("java")
     cli_jar = _find_jacoco(config, "cli", "org.jacoco.cli", "nodeps")
     ensure_dir(report_dir)
-    run([
-        java, "-jar", cli_jar, "report", exec_file,
-        "--classfiles", config.java_classes_dir,
-        "--classfiles", config.kotlin_classes_dir,
-        "--sourcefiles", config.sources_dir,
-        "--html", report_dir,
-        "--xml", os.path.join(report_dir, "coverage.xml"),
-    ])
+    with tempfile.TemporaryDirectory(prefix=".jacoco-report-", dir=os.path.dirname(report_dir)) as staging:
+        run([
+            java, "-jar", cli_jar, "report", exec_file,
+            "--classfiles", config.java_classes_dir,
+            "--classfiles", config.kotlin_classes_dir,
+            "--sourcefiles", config.sources_dir,
+            "--html", staging,
+            "--xml", os.path.join(staging, "coverage.xml"),
+        ])
+        try:
+            report = ET.parse(os.path.join(staging, "coverage.xml"))
+            with open(os.path.join(staging, "index.html"), encoding="utf-8") as html:
+                header = html.read(65536)
+            if report.getroot().tag != "report" or "<html" not in header.lower():
+                raise ValueError("Invalid XML or HTML report")
+        except (OSError, ET.ParseError, ValueError) as error:
+            raise RuntimeError("Coverage report generation produced missing or invalid XML/HTML") from error
+        shutil.copytree(staging, report_dir, dirs_exist_ok=True)
     log.info("Coverage report: %s", report_dir)
 
 
