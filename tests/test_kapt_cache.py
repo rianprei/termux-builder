@@ -28,7 +28,7 @@ def distribution(extra=None):
 
 class KotlinDistributionTests(unittest.TestCase):
     def response(self, data):
-        response = Mock()
+        response = Mock(status_code=200)
         response.iter_content.return_value = [data]
         return response
 
@@ -158,7 +158,7 @@ class KaptPluginTests(unittest.TestCase):
             get.assert_not_called()
 
     def test_valid_plugin_reuses_cache_without_network(self):
-        response = Mock()
+        response = Mock(status_code=200)
         response.iter_content.return_value = [jar_bytes('org/jetbrains/kotlin/kapt3/Kapt3ComponentRegistrar.class', b'\xca\xfe\xba\xbe\x00\x00\x00\x34\x00\x02')]
         with tempfile.TemporaryDirectory() as temp:
             config = SimpleNamespace(cache_dir=temp)
@@ -169,7 +169,7 @@ class KaptPluginTests(unittest.TestCase):
             response.close.assert_called_once()
 
     def test_invalid_download_is_not_published(self):
-        response = Mock()
+        response = Mock(status_code=200)
         response.iter_content.return_value = [b'not a jar']
         with tempfile.TemporaryDirectory() as temp:
             with patch('builder.kapt.requests.get', return_value=response):
@@ -191,7 +191,7 @@ class KaptPluginTests(unittest.TestCase):
 
     def test_interrupted_plugin_download_cleans_staging(self):
         import requests
-        response = Mock()
+        response = Mock(status_code=200)
         def chunks(*args):
             yield b'partial'
             raise requests.ConnectionError('interrupted')
@@ -205,10 +205,19 @@ class KaptPluginTests(unittest.TestCase):
 
 
     def test_invalid_registrar_class_header_is_rejected(self):
-        response = Mock()
+        response = Mock(status_code=200)
         response.iter_content.return_value = [jar_bytes('org/jetbrains/kotlin/kapt3/Kapt3ComponentRegistrar.class')]
         with tempfile.TemporaryDirectory() as temp:
             with patch('builder.kapt.requests.get', return_value=response):
                 with self.assertRaisesRegex(RuntimeError, 'class header'):
                     kapt.setup_kapt_plugin(SimpleNamespace(cache_dir=temp), '1.9.24')
             self.assertEqual(list((Path(temp) / 'kapt').iterdir()), [])
+
+    def test_plugin_redirect_is_refused_before_streaming(self):
+        response = Mock(status_code=302)
+        with tempfile.TemporaryDirectory() as temp:
+            with patch('builder.kapt.requests.get', return_value=response) as get:
+                with self.assertRaisesRegex(RuntimeError, 'redirects'):
+                    kapt.setup_kapt_plugin(SimpleNamespace(cache_dir=temp), '1.9.24')
+                self.assertFalse(get.call_args.kwargs['allow_redirects'])
+                response.iter_content.assert_not_called()

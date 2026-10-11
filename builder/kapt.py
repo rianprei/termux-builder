@@ -42,9 +42,11 @@ def setup_kapt_plugin(config, kotlinc_version):
     with tempfile.TemporaryDirectory(prefix=".kapt-plugin-", dir=cache_dir) as staging:
         temporary = os.path.join(staging, "plugin.jar")
         try:
-            response = requests.get(url, timeout=60, stream=True)
+            response = requests.get(url, timeout=60, stream=True, allow_redirects=False)
             try:
                 response.raise_for_status()
+                if response.status_code != 200:
+                    raise RuntimeError("KAPT plugin download requires HTTP 200; redirects are refused")
                 total = 0
                 with open(temporary, "wb") as output:
                     for chunk in response.iter_content(65536):
@@ -65,23 +67,26 @@ def setup_kapt_plugin(config, kotlinc_version):
 
 
 def _validate_kapt_plugin(path):
+    _validate_toolchain_jar(path, "org/jetbrains/kotlin/kapt3/Kapt3ComponentRegistrar.class", "KAPT plugin")
+
+
+def _validate_toolchain_jar(path, required_class, label):
     if os.path.islink(path) or not os.path.isfile(path):
-        raise RuntimeError("Invalid KAPT plugin cache path")
+        raise RuntimeError(f"Invalid {label} cache path")
     try:
         with _bounded_zip(path, 100000) as archive:
             if sum(member.file_size for member in archive.infolist()) > 256 * 1024 * 1024:
-                raise RuntimeError("KAPT plugin exceeds validation limits")
-            registrar = "org/jetbrains/kotlin/kapt3/Kapt3ComponentRegistrar.class"
-            if archive.testzip() is not None or registrar not in archive.namelist():
-                raise RuntimeError("Invalid KAPT plugin JAR")
-            with archive.open(registrar) as source:
+                raise RuntimeError(f"{label} exceeds validation limits")
+            if archive.testzip() is not None or required_class not in archive.namelist():
+                raise RuntimeError(f"Invalid {label} JAR")
+            with archive.open(required_class) as source:
                 header = source.read(10)
             if (len(header) != 10 or header[:4] != b"\xca\xfe\xba\xbe" or
                     int.from_bytes(header[6:8], "big") < 45 or
                     int.from_bytes(header[8:10], "big") < 2):
-                raise RuntimeError("Invalid KAPT registrar class header")
+                raise RuntimeError(f"Invalid {label} class header")
     except (OSError, zipfile.BadZipFile) as exc:
-        raise RuntimeError("Invalid KAPT plugin JAR; remove the cached plugin and retry") from exc
+        raise RuntimeError(f"Invalid {label} JAR; remove the cached artifact and retry") from exc
 
 
 def setup_k1_compiler(config):
