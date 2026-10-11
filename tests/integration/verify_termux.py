@@ -66,10 +66,28 @@ with tempfile.TemporaryDirectory(prefix='termux-builder-native-') as temp:
         raw['android']['sdk-path'] = str(android_jar.parents[2])
         raw['android']['target-sdk'] = int(android_jar.parent.name.removeprefix('android-'))
     (project / 'project.yml').write_text(yaml.safe_dump(raw))
+    config_file = project / 'project.yml'
+    original_config = config_file.read_bytes()
+    original_inputs = {path: path.read_bytes() for path in (
+        project / 'AndroidManifest.xml', next(project.rglob('MainActivity.java')))}
+    try:
+        for unsafe in ('.', 'src'):
+            config_file.write_text(yaml.safe_dump({**raw, 'build-path': unsafe}))
+            for operation in (['clean', str(project)], ['build', str(project), '--clean']):
+                rejected = subprocess.run([sys.executable, '-m', 'builder', *operation],
+                    env=environment, capture_output=True, text=True)
+                if rejected.returncode != 1 or 'build-path' not in rejected.stdout + rejected.stderr:
+                    raise RuntimeError('Unsafe native build-path was not rejected')
+                if any(path.read_bytes() != content for path, content in original_inputs.items()):
+                    raise RuntimeError('Unsafe native build-path changed project inputs')
+    finally:
+        config_file.write_bytes(original_config)
+    print('REAL TERMUX CLEAN: unsafe project/source build paths rejected and inputs preserved', flush=True)
     observations = []
-    for phase in ('cold', 'rebuild'):
+    for phase in ('cold', 'rebuild', 'clean-rebuild'):
         start = time.monotonic()
-        subprocess.run([sys.executable, '-m', 'builder', 'build', str(project)],
+        subprocess.run([sys.executable, '-m', 'builder', 'build', str(project),
+            *(['--clean'] if phase == 'clean-rebuild' else [])],
             env=environment, check=True)
         elapsed = time.monotonic() - start
         artifacts = list((project / '.build').glob('*-debug.apk'))
@@ -87,7 +105,7 @@ with tempfile.TemporaryDirectory(prefix='termux-builder-native-') as temp:
         if "package: name='com.example.nativevalidation'" not in badging.stdout:
             raise RuntimeError('Native APK package identity differs')
         observations.append({'phase': phase, 'seconds': elapsed, 'apk_bytes': artifact.stat().st_size})
-    print('REAL TERMUX APK: CLI cold build and rebuild, native signing and package verification passed', flush=True)
+    print('REAL TERMUX APK: CLI cold build, rebuild and clean rebuild, native signing and package verification passed', flush=True)
     from builder.utils import project_lock
     previous_apk = artifact.read_bytes()
     with project_lock(str(project)):

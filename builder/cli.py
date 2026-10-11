@@ -461,8 +461,15 @@ def _clean(args):
 
 
 def _do_clean(config):
-    if os.path.isdir(config.build_dir):
-        shutil.rmtree(config.build_dir)
+    from builder.config import validate_build_directory
+    validate_build_directory(config)
+    build_dir = os.path.normpath(config.build_dir)
+    if os.path.islink(build_dir):
+        raise ValueError("build-path must not be a symlink when cleaning")
+    if os.path.realpath(build_dir) != os.path.realpath(config.build_dir):
+        raise ValueError("build-path has ambiguous parent traversal through a symlink")
+    if os.path.isdir(build_dir):
+        shutil.rmtree(build_dir)
         log.info("Removed %s", config.build_dir)
 
 

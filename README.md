@@ -237,6 +237,14 @@ A assinatura AAB usa o algoritmo escolhido pelo `jarsigner` para o tipo e tamanh
 
 A fixture `tests/integration/verify_testing.py` exige JDK, JUnit 4.13.2, Hamcrest Core 1.3 e um SDK local. Ela executa a CLI real, exige uma falha de assertion JUnit, remove a fonte que falhava e exige sucesso com exatamente um teste, depois remove todas as fontes e verifica a invalidação do bytecode. Reproduza com `PYTHONPATH=. python tests/integration/verify_testing.py --android-jar /caminho/SDK/platforms/android-36/android.jar --junit-jar /caminho/junit-4.13.2.jar --hamcrest-jar /caminho/hamcrest-core-1.3.jar`. O fluxo passou no host Linux com JDK 21 e JDK 25.0.4.1; a CI configura JDK 17 e baixa essas dependências do Maven Central. Execução remota da CI e execução completa dessa fixture JUnit no Termux permanecem não verificadas. A recusa de `test` concorrente pelo lock foi verificada no Termux.
 
+### Segurança de `build-path` e limpeza
+
+`build-path` exige uma string não vazia sem NUL. A configuração recusa a raiz do projeto e seus ancestrais, sobreposição com `src`, fontes/recursos/assets/JNI/bibliotecas, SDK e cache configurados, e saídas que contenham configuração, manifesto, chave de assinatura, android.jar, regras R8 ou processadores declarados. Os caminhos reais são comparados, incluindo aliases symlink. Isso impede apagar entradas conhecidas e misturar saídas com diretórios de descoberta de fontes.
+
+`clean` e `build --clean` revalidam os caminhos antes de excluir arquivos. A limpeza recusa um symlink na raiz da saída, inclusive com barra final ou `/.`, e caminhos cujo `..` através de symlink tenha significado diferente após normalização. Diretórios de saída dedicados fora do projeto continuam permitidos. Configurações sobrepostas precisam mover a saída, as entradas ou o cache para diretórios separados; nenhum caminho é alterado automaticamente.
+
+Essas verificações protegem as entradas declaradas e os diretórios convencionais; não identificam arquivos pessoais desconhecidos colocados numa saída nem isolam o projeto de alterações externas simultâneas. `clean` continua removendo todo o diretório de saída dedicado. Testes temporários verificam preservação de fontes, configuração, dependências, chaves, cache e aliases; a fixture Termux também recusa saídas `.`/`src` e verifica build com `--clean`.
+
 ### Concorrência no projeto
 
 A CLI protege `build` (APK/AAB, incluindo `--clean`), `test`, `clean` e `deps` com um `flock` exclusivo no diretório do projeto. Uma operação concorrente no mesmo diretório é recusada imediatamente com código 1 e orientação para tentar novamente após a primeira terminar. Caminhos symlink para o mesmo diretório compartilham o lock; projetos diferentes continuam independentes. Não há arquivo de lock a apagar: o kernel libera o descritor quando o processo termina, inclusive após SIGKILL. Testes com processo independente verificam a recusa antes de alterações e a recuperação após interrupção.

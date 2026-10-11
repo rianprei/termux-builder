@@ -144,6 +144,31 @@ def _resolve_sdk_bin(sdk_dir, name, bins_config):
     return None
 
 
+def validate_build_directory(config):
+    build = os.path.realpath(config.build_dir)
+    project = os.path.realpath(config.project_dir)
+    if os.path.commonpath((build, project)) == build:
+        raise ValueError("build-path must not be the project directory or its ancestor")
+    directories = [os.path.join(project, "src")]
+    directories += [getattr(config, name, None) for name in (
+        "sources_dir", "res_dir", "assets_dir", "jni_dir", "libs_dir", "sdk_dir", "cache_dir",
+        "flavor_sources_dir", "flavor_res_dir", "flavor_assets_dir")]
+    for path in filter(None, directories):
+        source = os.path.realpath(path)
+        if os.path.commonpath((build, source)) in (build, source):
+            raise ValueError(f"build-path overlaps an input directory: {path}")
+    files = [os.path.join(project, "project.yml")]
+    files += [getattr(config, name, None) for name in (
+        "manifest_path", "keystore_path", "android_jar")]
+    if getattr(config, "r8_rules", None):
+        files.append(os.path.join(project, config.r8_rules))
+    files += [os.path.join(project, path) for path in getattr(config, "annotation_processors", [])]
+    for path in filter(None, files):
+        source = os.path.realpath(path)
+        if os.path.commonpath((build, source)) == build:
+            raise ValueError(f"build-path contains an input file: {path}")
+
+
 class Config:
     def __init__(self, project_dir, flavor=None):
         self.project_dir = os.path.abspath(project_dir)
@@ -282,7 +307,10 @@ class Config:
 
         self.libs_dir = os.path.join(self.project_dir, raw.get("libs-path", ".libs"))
         self.cache_dir = os.path.join(self.project_dir, raw.get("cache-path", ".cache"))
-        self.build_dir = os.path.join(self.project_dir, raw.get("build-path", ".build"))
+        build_path = raw.get("build-path", ".build")
+        if not isinstance(build_path, str) or not build_path.strip() or '\x00' in build_path:
+            raise ValueError("build-path must be a nonempty path without NUL")
+        self.build_dir = os.path.join(self.project_dir, build_path)
         self.gen_dir = os.path.join(self.build_dir, "gen")
         self.bin_dir = os.path.join(self.build_dir, "bin")
         self.java_classes_dir = os.path.join(self.bin_dir, "classes", "java")
@@ -310,6 +338,7 @@ class Config:
         if self.bin_d8 == "d8" and "d8" not in bins:
             self.bin_d8 = self._resolve_bin("dx", bins)
         self.bin_apksigner = self._resolve_bin("apksigner", bins)
+        validate_build_directory(self)
 
     def _resolve_sdk(self, configured):
         if configured:

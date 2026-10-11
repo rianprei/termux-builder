@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Protege build-path e clean contra exclusão do projeto/ancestrais e sobreposição com entradas configuradas, bibliotecas, cache e chaves. Revalida caminhos reais antes da limpeza; rejeita symlinks de saída com barras finais e traversal ambíguo, preservando diretórios externos dedicados. Regressões usam somente projetos temporários; fixture Termux cobre caminhos inseguros e rebuild com --clean.
+
 - Inclui test no lock exclusivo da CLI; regressão reproduz a execução indevida durante outra operação, e a fixture Termux verifica recusa com código 1 sem alterar o APK.
 
 - Invalida test-classes antes de cada execução JUnit, incluindo remoção de todas as fontes, e recusa symlinks nesse destino. Fixture com JDK/JUnit reais reproduziu a execução de teste removido antes da correção; agora verifica falha de assertion, rebuild com um teste e remoção total. Integra a fixture à CI.
