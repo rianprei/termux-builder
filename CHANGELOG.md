@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Verifica KAPT completo no Termux ARM64/Bionic, Android 16/API 36, Python 3.14.6/JDK 21.0.12, UID/contexto do aplicativo e CapEff=0. Geração acionada por Java, bytecode direto/Java/Kotlin/recursos, valor JVM 28, DEX, dois APKs/dois AABs assinados e rebuilds sem clean passaram. A repetição completa por ADB Wi-Fi terminou com código 0 após interrupção USB. JARs/android.jar locais; instalação, bootstrap, fallback K2 e outros processadores não verificados.
+
 - Torna a fixture KAPT portátil: wrapper com Python atual e --toolchain-cache para Kotlin/KAPT/bundletool locais, sem alterar padrões da CI. Regressão real no Termux reproduziu /usr/bin/env ausente; compilação e execução JVM passaram após a correção. Fluxo completo APK/AAB e rebuilds passaram no host JDK 21; isso não certifica o fluxo nativo completo.
 
 - Detecta android.jar ausente antes de clean/dependências/recursos em APK/AAB, reutilizando a resolução existente e preservando o fallback nativo. Testes reproduziram a execução tardia e a exclusão da saída; fixture CLI exige código 1, diagnóstico de SDK e preservação dos bytes. 297 testes e a fixture real mista Java/Kotlin com APK/AAB, recuperação e dependências removidas passaram no host. A presença do arquivo não comprova sua integridade.
