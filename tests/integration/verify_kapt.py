@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from builder import kapt,compiler,dexer,packager,aab
 parser=argparse.ArgumentParser(description='Verify real KAPT generation and execution; optionally verify real DEX output')
 parser.add_argument('--android-jar')
+parser.add_argument('--toolchain-cache', help='Reuse a local Kotlin/KAPT/bundletool cache')
 parser.add_argument('--d8', default='d8')
 parser.add_argument('--dexdump', default='dexdump')
 parser.add_argument('--aapt2', default='aapt2')
@@ -12,7 +13,8 @@ parser.add_argument('--apksigner', default='apksigner')
 options=parser.parse_args()
 with tempfile.TemporaryDirectory(prefix='real-kapt-') as temp:
  root=Path(temp)
- config=SimpleNamespace(cache_dir=str(root/'cache'),build_dir=str(root/'build'),project_dir=temp,
+ toolchain_cache=str(Path(options.toolchain_cache).resolve()) if options.toolchain_cache else str(root/'cache')
+ config=SimpleNamespace(cache_dir=toolchain_cache,build_dir=str(root/'build'),project_dir=temp,
   kotlin_classes_dir=str(root/'build/kotlin'),java_classes_dir=str(root/'build/java'),
   kapt_enabled=True,ksp_enabled=False,annotation_processors=['processor.jar'],compose=False,
   bin_javac=shutil.which('javac'),bin_d8='d8',java_version=8,android_jar=str(root/'android.jar'))
@@ -21,7 +23,7 @@ with tempfile.TemporaryDirectory(prefix='real-kapt-') as temp:
  jars=kapt.setup_k1_compiler(config)
  prefix=[shutil.which('java'),'-cp',os.pathsep.join(jars),'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler']
  wrapper=root/'kotlinc'
- wrapper.write_text('#!/usr/bin/env python3\nimport os,sys\nprefix='+repr(prefix)+'\nos.execv(prefix[0],prefix+sys.argv[1:])\n')
+ wrapper.write_text('#!'+sys.executable+'\nimport os,sys\nprefix='+repr(prefix)+'\nos.execv(prefix[0],prefix+sys.argv[1:])\n')
  wrapper.chmod(0o755)
  config.bin_kotlinc=str(wrapper)
  direct_source=root/'Direct.java'
@@ -156,7 +158,7 @@ public class Generator extends AbstractProcessor {
    '-storepass:env','TB_FIXTURE_PASSWORD','-keypass:env','TB_FIXTURE_PASSWORD',
    '-alias','fixture','-dname','CN=Integration Fixture','-keyalg','RSA','-validity','1'],env=environment,check=True)
   android_jar=Path(config.android_jar)
-  raw={'name':'kapt-cli','cache-path':str(root/'cache'),'libs-path':'libraries',
+  raw={'name':'kapt-cli','cache-path':toolchain_cache,'libs-path':'libraries',
    'annotation-processors':[str(root/'processor.jar')],
    'android':{'kapt':True,'target-sdk':int(android_jar.parent.name.removeprefix('android-')),
     'sdk-path':str(android_jar.parents[2]),'java-version':8,
