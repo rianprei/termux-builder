@@ -38,8 +38,8 @@ class NativeLibraryDiscoveryTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'signing must be a mapping'):
                     Config(tempdir)
 
-    def test_processor_flags_require_yaml_booleans(self):
-        for flag in ('kapt', 'ksp'):
+    def test_pipeline_flags_require_yaml_booleans(self):
+        for flag in ('kapt', 'ksp', 'aab', 'desugar', 'r8', 'view-binding', 'compose', 'abi-splits', 'density-splits'):
             for value in ('false', 'true', 0, 1, None, []):
                 with self.subTest(flag=flag, value=value), tempfile.TemporaryDirectory() as tempdir:
                     with open(os.path.join(tempdir, 'AndroidManifest.xml'), 'w') as manifest:

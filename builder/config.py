@@ -199,8 +199,8 @@ class Config:
         self.annotation_processors = raw.get("annotation-processors", [])
         self.kapt_enabled = android.get("kapt", False)
         self.ksp_enabled = android.get("ksp", False)
-        for name, value in (("kapt", self.kapt_enabled), ("ksp", self.ksp_enabled)):
-            if not isinstance(value, bool):
+        for name in ("kapt", "ksp", "aab", "desugar", "r8", "view-binding", "compose", "abi-splits", "density-splits"):
+            if not isinstance(android.get(name, False), bool):
                 raise ValueError(f"android.{name} must be a boolean; use true or false without quotes")
         if not isinstance(self.annotation_processors, list) or any(
             not isinstance(path, str) or not path.strip() or '\x00' in path

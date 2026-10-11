@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Exige booleanos YAML nas flags de AAB, desugar, R8, ViewBinding, Compose e splits, evitando selecao involuntaria de pipeline com strings como "false".
+
 - Valida a secao android.signing e os booleanos v1-v4 antes do build, evitando interpretacoes divergentes de strings/numeros e diagnosticos tardios do apksigner.
 
 - Valida flags KAPT/KSP como booleanos YAML e annotation-processors como lista de caminhos nao vazios, recusando entradas ambiguas antes da preparacao do build.
