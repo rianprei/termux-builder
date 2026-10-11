@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Adiciona doctor --aab com diagnóstico local de Java, jarsigner e aapt2, preservando doctor padrão e check() sem argumentos. Testes cobrem cada ausência; CLI real aprova a toolchain do host e retorna 1 com PATH sem ferramentas. Não baixa nem verifica cache do bundletool.
+
 - Corrige falso sucesso do doctor quando o SDK tem diretórios de plataformas mas nenhum android.jar. Exige arquivo em uma plataforma ou fallback de sistema e contabiliza a ausência como problema; regressão usa SDK temporário sem JAR.
 
 - Recusa APK de staging vazio após o assinador: mkstemp já criava o arquivo, portanto mera existência não comprovava saída. Regressão simula sucesso sem escrita, exige falha antes de verify, preservação do APK anterior e limpeza do staging.

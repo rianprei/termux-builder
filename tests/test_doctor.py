@@ -10,6 +10,26 @@ from builder.doctor import check
 
 
 class DoctorSdkToolTests(unittest.TestCase):
+    def test_aab_diagnosis_requires_java_jarsigner_and_aapt2(self):
+        for missing in ('java', 'jarsigner', 'aapt2', None):
+            with self.subTest(missing=missing), tempfile.TemporaryDirectory() as tempdir:
+                sdk = Path(tempdir) / 'sdk'
+                jar = sdk / 'platforms/android-36/android.jar'
+                jar.parent.mkdir(parents=True)
+                jar.write_bytes(b'fixture')
+                output = io.StringIO()
+                def executable(name):
+                    return None if name == missing else '/fixture/' + name
+                with patch.dict(os.environ, {'ANDROID_SDK': str(sdk)}), \
+                     patch('builder.doctor.shutil.which', side_effect=executable), \
+                     patch('builder.doctor._resolve_sdk_bin', side_effect=lambda sdk, name, bins: executable(name)), \
+                     contextlib.redirect_stdout(output):
+                    self.assertEqual(check(), 0)
+                    self.assertEqual(check(aab=True), 0 if missing is None else 1)
+                self.assertIn('AAB requirements:', output.getvalue())
+                if missing:
+                    self.assertIn(missing + ' not found', output.getvalue())
+
     def test_sdk_directory_without_android_jar_is_not_healthy(self):
         with tempfile.TemporaryDirectory() as tempdir:
             sdk = Path(tempdir) / 'sdk'

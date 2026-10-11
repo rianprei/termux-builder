@@ -8,7 +8,7 @@ _SYSTEM_ANDROID_JAR = "/data/data/com.termux/files/usr/share/java/android.jar"
 _ECJ_JAR = "/data/data/com.termux/files/usr/share/dex/ecj.jar"
 
 
-def check():
+def check(aab=False):
     sdk_path = None
     sdk_env = None
     for var in ("ANDROID_SDK", "ANDROID_HOME", "ANDROID_SDK_ROOT"):
@@ -85,6 +85,18 @@ def check():
             print(f"  {color('XX', 'red')}  {tool} not found — pkg install {pkg}")
             issues += 1
     print()
+
+    if aab:
+        print("AAB requirements:")
+        for tool, pkg in (("java", "openjdk-17"), ("jarsigner", "openjdk-17"), ("aapt2", "aapt2")):
+            path = _resolve_sdk_bin(sdk_path, tool, {}) if tool == "aapt2" else shutil.which(tool)
+            if path:
+                print(f"  {color('OK', 'green')}  {tool}: {path}")
+            else:
+                print(f"  {color('XX', 'red')}  {tool} not found — pkg install {pkg}")
+                issues += 1
+        print("  bundletool cache/version is verified by build --aab; missing cache requires network")
+        print()
 
     print("Android SDK / android.jar:")
     if sdk_env:

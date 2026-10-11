@@ -381,4 +381,4 @@ Projeto independente inspirado por:
 
 ### Diagnóstico do SDK
 
-`doctor` não considera a mera pasta do SDK ou de uma plataforma como presença de `android.jar`: exige um arquivo na plataforma ou o fallback de sistema. A ausência gera problema e código 1 pela CLI. Essa checagem constata presença; não valida o conteúdo do JAR nem comprova que a API selecionada pelo projeto está disponível. O diagnóstico geral ainda não cobre todas as capacidades específicas de AAB.
+`doctor` não considera a mera pasta do SDK ou de uma plataforma como presença de `android.jar`: exige um arquivo na plataforma ou o fallback de sistema. A ausência gera problema e código 1 pela CLI. Essa checagem constata presença; não valida o conteúdo do JAR nem comprova que a API selecionada pelo projeto está disponível. `doctor --aab` acrescenta a presença de Java, jarsigner e aapt2 aos requisitos padrão, retornando código 1 quando faltam. Não baixa ferramentas nem valida cache/versão do bundletool; esse gate continua no build. A presença de executáveis não comprova versões compatíveis, APIs específicas do projeto ou build bem-sucedido.

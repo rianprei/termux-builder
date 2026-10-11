@@ -42,7 +42,8 @@ def main():
     deps_p = sub.add_parser("deps", help="Download dependencies")
     deps_p.add_argument("project", help="Project directory")
 
-    sub.add_parser("doctor", help="Check build environment")
+    doctor_p = sub.add_parser("doctor", help="Check build environment")
+    doctor_p.add_argument("--aab", action="store_true", help="Also check AAB-specific tool requirements")
 
     setup_p = sub.add_parser("setup", help="Install SDK and tools")
     setup_p.add_argument("--api", type=int, default=34, help="Android API level")
@@ -121,7 +122,7 @@ def main():
         elif args.command == "deps":
             _deps(args)
         elif args.command == "doctor":
-            _doctor()
+            _doctor(aab=args.aab)
         elif args.command == "setup":
             _setup(args)
         elif args.command == "test":
@@ -481,9 +482,9 @@ def _deps(args):
         deps.resolve(config)
 
 
-def _doctor():
+def _doctor(aab=False):
     from builder.doctor import check
-    issues = check()
+    issues = check(aab=True) if aab else check()
     sys.exit(1 if issues > 0 else 0)
 
 
