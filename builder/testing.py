@@ -1,11 +1,40 @@
 import os
+import hashlib
 import shutil
 import stat
+import tempfile
 import requests
 from builder.utils import run, find_files, find_bin, log, ensure_dir
 
 JACOCO_VERSION = "0.8.12"
-JACOCO_BASE = "https://repo1.maven.org/maven2/org/jacoco"
+JACOCO_BASE = "https://repo.maven.apache.org/maven2/org/jacoco"
+JACOCO_MAX_BYTES = 8 * 1024 * 1024
+JACOCO_SHA256 = {
+    "agent": "115e8e6e6593ca3a9892dfef695df4d487c706e59e71e64dc0ab95716ee02622",
+    "cli": "594c01125b84864a7fc5a9efab19b71b7de36b27346863f6d7cd0cd45400ceb0",
+}
+
+
+def _verify_jacoco(path, kind):
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        try:
+            metadata = os.fstat(fd)
+            if not stat.S_ISREG(metadata.st_mode) or metadata.st_size > JACOCO_MAX_BYTES:
+                raise RuntimeError("JaCoCo cache must be a regular file within the size limit")
+            digest = hashlib.sha256()
+            total = 0
+            while chunk := os.read(fd, 64 * 1024):
+                total += len(chunk)
+                if total > JACOCO_MAX_BYTES:
+                    raise RuntimeError("JaCoCo cache exceeds the size limit")
+                digest.update(chunk)
+            if digest.hexdigest() != JACOCO_SHA256[kind]:
+                raise RuntimeError(f"JaCoCo cache checksum mismatch; remove only this file and retry: {path}")
+        finally:
+            os.close(fd)
+    except OSError:
+        raise RuntimeError(f"Cannot read JaCoCo cache safely: {path}") from None
 
 
 def run_tests(config, coverage=False, coverage_report=None):
@@ -118,18 +147,48 @@ def run_tests(config, coverage=False, coverage_report=None):
 
 def _find_jacoco(config, kind, group, classifier):
     """Download jacoco agent/cli jar from Maven Central, cached in .cache/deps."""
-    artifact = "org.jacoco.agent" if kind == "agent" else "org.jacoco.cli"
+    if (kind, group, classifier) not in (('agent', 'org.jacoco.agent', 'runtime'), ('cli', 'org.jacoco.cli', 'nodeps')):
+        raise ValueError("Unsupported JaCoCo artifact")
+    artifact = group
     filename = f"{artifact}-{JACOCO_VERSION}-{classifier}.jar"
-    dest = os.path.join(config.cache_dir, "deps", filename)
-    if os.path.isfile(dest):
+    cache_root = os.path.normpath(config.cache_dir)
+    if os.path.realpath(cache_root) != os.path.realpath(config.cache_dir):
+        raise RuntimeError("JaCoCo cache path has ambiguous parent traversal through a symlink")
+    cache_deps = os.path.join(cache_root, "deps")
+    if any(os.path.islink(path) for path in (cache_root, cache_deps)):
+        raise RuntimeError("JaCoCo cache directories must not be symlinks")
+    dest = os.path.join(cache_deps, filename)
+    if os.path.lexists(dest):
+        _verify_jacoco(dest, kind)
         return dest
-    ensure_dir(os.path.dirname(dest))
+    try:
+        ensure_dir(os.path.dirname(dest))
+        fd, staging = tempfile.mkstemp(prefix='.jacoco-', dir=os.path.dirname(dest))
+    except OSError:
+        raise RuntimeError(f"Cannot prepare JaCoCo cache directory: {os.path.dirname(dest)}") from None
     url = f"{JACOCO_BASE}/{artifact}/{JACOCO_VERSION}/{filename}"
     log.info("Downloading %s", filename)
-    r = requests.get(url, timeout=60)
-    r.raise_for_status()
-    with open(dest, "wb") as f:
-        f.write(r.content)
+    try:
+        with os.fdopen(fd, 'wb') as output:
+            response = requests.get(url, timeout=60, stream=True, allow_redirects=False)
+            try:
+                if response.status_code != 200:
+                    raise RuntimeError("JaCoCo download requires a direct HTTP 200 response")
+                total = 0
+                for chunk in response.iter_content(64 * 1024):
+                    total += len(chunk)
+                    if total > JACOCO_MAX_BYTES:
+                        raise RuntimeError("JaCoCo download exceeds the size limit")
+                    output.write(chunk)
+            finally:
+                response.close()
+        _verify_jacoco(staging, kind)
+        os.replace(staging, dest)
+    except (requests.RequestException, OSError) as exc:
+        raise RuntimeError(f"JaCoCo download failed ({type(exc).__name__}); network is required when the verified cache is missing") from None
+    finally:
+        if os.path.exists(staging):
+            os.unlink(staging)
     return dest
 
 
