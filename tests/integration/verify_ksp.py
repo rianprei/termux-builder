@@ -205,3 +205,14 @@ class Processor(private val generator: CodeGenerator) : SymbolProcessor {
         if {'LGenerated;', 'LGeneratedJava;', 'LMain;'}.intersection(descriptors) != {'LMain;'}:
             raise RuntimeError('Stale KSP class definitions survived CLI rebuild')
         print('REAL KSP CLI REBUILD: changed project.yml honored without clean; generated classes/resource removed; signature verified')
+        subprocess.run([sys.executable, '-m', 'builder', 'build', str(project), '--aab'], env=environment, check=True)
+        subprocess.run(['jarsigner', '-verify', str(bundle)], check=True)
+        with zipfile.ZipFile(bundle) as archive:
+            if archive.testzip() or 'base/root/generated-data.txt' in archive.namelist():
+                raise RuntimeError('Stale KSP resource survived CLI AAB rebuild')
+            cli_dex.write_bytes(archive.read('base/dex/classes.dex'))
+        inspected = subprocess.run([options.dexdump, '-f', str(cli_dex)], check=True, capture_output=True, text=True)
+        descriptors = set(re.findall(r"Class descriptor\s*:\s*'([^']+)'", inspected.stdout))
+        if {'LGenerated;', 'LGeneratedJava;', 'LMain;'}.intersection(descriptors) != {'LMain;'}:
+            raise RuntimeError('Stale KSP classes survived CLI AAB rebuild')
+        print('REAL KSP CLI AAB REBUILD: generated classes/resource removed without clean; bundle validation and signature passed')

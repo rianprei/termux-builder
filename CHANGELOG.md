@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Verifica rebuild AAB pela CLI sem clean apos desabilitar KSP, incluindo remocao de classes/recursos e nova validacao do bundle e da assinatura.
+
 - Exercita AAB KSP real pela CLI na fixture da CI, verificando bundletool, assinatura JAR, classes geradas no DEX e recurso no modulo base.
 
 - Valida bins como mapa de strings de executaveis nao vazias e sem NUL antes da resolucao de ferramentas, evitando falhas indiretas nos subprocessos.
