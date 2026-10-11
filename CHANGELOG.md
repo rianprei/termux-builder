@@ -1,3 +1,15 @@
+## Unreleased
+
+### Fixed
+- `build --aab` and `android.aab: true` now reach the AAB pipeline after compilation; the APK build remains the default, and AAB output cannot be passed to `--install`.
+- APK output is returned only after `apksigner verify` succeeds; AAB output is checked for required bundle entries and a valid JAR signature.
+- AAB signing now passes both keystore passwords through the subprocess environment.
+- Keystore password settings accept `env:VARIABLE` references and fail clearly when the variable is unset; literal values remain supported for compatibility.
+- Proto-APK extraction rejects traversal paths and symlink entries before writing bundle files.
+
+### Tests
+- Added CLI/config regression tests, unsafe archive tests, signature checks, and a real `keytool`/`jarsigner` integration test.
+
 ## [3.11.0] - 2026-08-09
 
 ### Added

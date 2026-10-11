@@ -36,9 +36,16 @@ def sign_apk(config, unsigned_path, signed_path):
         "--out", signed_path,
         "--in", unsigned_path,
     ], env=env)
+    run([config.bin_apksigner, "verify", signed_path])
 
-    size_mb = os.path.getsize(signed_path) / (1024 * 1024)
-    log.info("Signed APK: %s (%.1f MB)", signed_path, size_mb)
+    size_bytes = os.path.getsize(signed_path)
+    if size_bytes < 1024:
+        size = f"{size_bytes} B"
+    elif size_bytes < 1024 * 1024:
+        size = f"{size_bytes / 1024:.1f} KiB"
+    else:
+        size = f"{size_bytes / (1024 * 1024):.1f} MiB"
+    log.info("Signed APK: %s (%s)", signed_path, size)
     return signed_path
 
 

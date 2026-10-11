@@ -1,4 +1,5 @@
 import os
+import stat
 import zipfile
 import requests
 from builder.utils import run, find_bin, find_files, ensure_dir, log
@@ -81,9 +82,16 @@ def build_bundle(config):
     ])
 
     _sign_aab(config, aab_path)
+    _verify_aab(aab_path)
 
-    size_mb = os.path.getsize(aab_path) / (1024 * 1024)
-    log.info("AAB: %s (%.1f MB)", aab_path, size_mb)
+    size_bytes = os.path.getsize(aab_path)
+    if size_bytes < 1024:
+        size = f"{size_bytes} B"
+    elif size_bytes < 1024 * 1024:
+        size = f"{size_bytes / 1024:.1f} KiB"
+    else:
+        size = f"{size_bytes / (1024 * 1024):.1f} MiB"
+    log.info("AAB: %s (%s)", aab_path, size)
     return aab_path
 
 
@@ -95,20 +103,52 @@ def _sign_aab(config, aab_path):
     that check signatures)."""
     if not os.path.isfile(config.keystore_path):
         raise FileNotFoundError(f"Keystore not found: {config.keystore_path}")
+    jarsigner = find_bin("jarsigner")
+    if not jarsigner:
+        raise RuntimeError("jarsigner not found — install: pkg install openjdk-17")
 
     env = os.environ.copy()
     env["_TB_KS_PASS"] = config.keystore_store_pass
+    env["_TB_KEY_PASS"] = config.keystore_key_pass
 
     log.info("Signing AAB with jarsigner")
     run([
-        "jarsigner",
+        jarsigner,
         "-keystore", config.keystore_path,
         "-storepass:env", "_TB_KS_PASS",
+        "-keypass:env", "_TB_KEY_PASS",
         "-sigalg", "SHA256withRSA",
         "-digestalg", "SHA-256",
         aab_path,
         config.keystore_alias,
     ], env=env)
+
+
+def _verify_aab(aab_path):
+    required_entries = {
+        "BundleConfig.pb",
+        "base/manifest/AndroidManifest.xml",
+        "base/resources.pb",
+    }
+    try:
+        with zipfile.ZipFile(aab_path) as bundle:
+            present_entries = set(bundle.namelist())
+    except (OSError, zipfile.BadZipFile) as e:
+        raise RuntimeError(f"AAB is not a readable ZIP archive: {e}")
+
+    missing = sorted(required_entries - present_entries)
+    if missing:
+        raise RuntimeError(f"AAB is missing required entries: {', '.join(missing)}")
+
+    jarsigner = find_bin("jarsigner")
+    if not jarsigner:
+        raise RuntimeError("jarsigner not found — install: pkg install openjdk-17")
+    env = os.environ.copy()
+    env["LC_ALL"] = "C"
+    result = run([jarsigner, "-verify", aab_path], capture=True, env=env)
+    if "jar verified" not in (result.stdout or "").lower():
+        raise RuntimeError("AAB signature verification failed: jarsigner did not verify the bundle")
+    log.info("AAB archive and signature verified; certificate trust was not checked")
 
 
 def _prepare_base_module(config, base_dir, proto_apk_path):
@@ -120,8 +160,15 @@ def _prepare_base_module(config, base_dir, proto_apk_path):
     manifest_dir = ensure_dir(os.path.join(base_dir, "manifest"))
     dex_dir = ensure_dir(os.path.join(base_dir, "dex"))
 
+    base_real = os.path.realpath(base_dir)
     with zipfile.ZipFile(proto_apk_path) as z:
-        z.extractall(base_dir)
+        for member in z.infolist():
+            member_path = os.path.realpath(os.path.join(base_real, member.filename))
+            if os.path.commonpath((base_real, member_path)) != base_real:
+                raise ValueError(f"Unsafe archive member path: {member.filename}")
+            if stat.S_ISLNK(member.external_attr >> 16):
+                raise ValueError(f"Unsafe archive member symlink: {member.filename}")
+            z.extract(member, base_real)
 
     # proto apk has AndroidManifest.xml at root — bundletool wants it under manifest/
     root_manifest = os.path.join(base_dir, "AndroidManifest.xml")

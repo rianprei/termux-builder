@@ -6,12 +6,15 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   syntax:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
       - name: Install package (non-editable, matches install.sh)
@@ -33,16 +36,75 @@ jobs:
           test -f smoketest/AndroidManifest.xml
           test -f smoketest/src/java/com/example/smoke/MainActivity.java
 
-  # Real APK build requires aapt2/d8/apksigner/ecj — Termux-native binaries,
-  # not available on ubuntu-latest runners. This job is a placeholder that
-  # documents the gap rather than faking coverage: full build verification
-  # only happens on-device (Termux), which this CI cannot reproduce.
-  note:
+  android-sdk-integration:
     runs-on: ubuntu-latest
     steps:
-      - run: |
-          echo "Full build pipeline (aapt2/d8/apksigner/ecj+dalvikvm) requires"
-          echo "Termux-native binaries not available on standard GitHub runners."
-          echo "This CI validates Python syntax, packaging, and CLI scaffolding only."
-          echo "Full build verification happens on-device — see CHANGELOG.md for"
-          echo "device-tested confirmations per release."
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: 'platforms;android-34 build-tools;35.0.0'
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - name: Install package
+        run: pip install .
+      - name: Unit and signing integration tests
+        run: python3 -m unittest discover -s tests -v
+      - name: Add Android build tools to PATH
+        run: echo "$ANDROID_HOME/build-tools/35.0.0" >> "$GITHUB_PATH"
+      - name: Build and inspect real APK and AAB artifacts
+        run: |
+          export ANDROID_SDK="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          cd "$RUNNER_TEMP"
+          termux-builder init termux-builder-e2e --package com.example.e2e
+          project="$RUNNER_TEMP/termux-builder-e2e"
+          termux-builder build "$project"
+          termux-builder build "$project" --aab
+          apk="$project/.build/termux-builder-e2e-debug.apk"
+          aab="$project/.build/termux-builder-e2e-debug.aab"
+          apks="$RUNNER_TEMP/termux-builder-e2e.apks"
+          universal_apk="$RUNNER_TEMP/termux-builder-e2e-universal.apk"
+          bundletool="$project/.cache/bundletool/bundletool-all-1.18.3.jar"
+          apksigner verify --verbose "$apk"
+          umask 077
+          password_file="$(mktemp)"
+          printf '%s\n' android > "$password_file"
+          trap 'rm -f "$password_file"' EXIT
+          java -jar "$bundletool" build-apks --bundle="$aab" --output="$apks" --mode=universal --overwrite \
+            --ks="$project/debug.keystore" --ks-key-alias=androiddebugkey \
+            --ks-pass="file:$password_file" --key-pass="file:$password_file"
+          python3 - "$apk" "$aab" "$apks" "$universal_apk" <<'PY'
+          import os
+          import sys
+          import zipfile
+
+          apk_path, aab_path, apks_path, universal_apk_path = sys.argv[1:]
+          with zipfile.ZipFile(apk_path) as apk:
+              if "classes.dex" not in apk.namelist():
+                  raise SystemExit("APK is missing classes.dex")
+          with zipfile.ZipFile(aab_path) as aab:
+              required = {
+                  "BundleConfig.pb",
+                  "base/manifest/AndroidManifest.xml",
+                  "base/resources.pb",
+                  "base/dex/classes.dex",
+              }
+              missing = sorted(required - set(aab.namelist()))
+              if missing:
+                  raise SystemExit("AAB is missing: " + ", ".join(missing))
+          with zipfile.ZipFile(apks_path) as apks:
+              if "universal.apk" not in apks.namelist():
+                  raise SystemExit("bundletool APK set is missing universal.apk")
+              with open(universal_apk_path, "wb") as universal_apk:
+                  universal_apk.write(apks.read("universal.apk"))
+          with zipfile.ZipFile(universal_apk_path) as universal_apk:
+              if "classes.dex" not in universal_apk.namelist():
+                  raise SystemExit("bundletool universal APK is missing classes.dex")
+          for artifact in (apk_path, aab_path, apks_path, universal_apk_path):
+              print(f"{artifact}: {os.path.getsize(artifact)} bytes")
+          PY
+          apksigner verify --verbose "$universal_apk"

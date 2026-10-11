@@ -1,9 +1,24 @@
 import xml.etree.ElementTree as ET
 import os
+import re
 import yaml
 from builder.utils import find_bin, log
 
 _SYSTEM_ANDROID_JAR = "/data/data/com.termux/files/usr/share/java/android.jar"
+
+
+def _resolve_password(value, setting):
+    value = str(value)
+    if not value.startswith("env:"):
+        return value
+
+    variable = value[4:]
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", variable):
+        raise ValueError(f"Invalid environment variable reference for {setting}")
+    password = os.environ.get(variable)
+    if password is None:
+        raise ValueError(f"{setting} references unset environment variable {variable}")
+    return password
 
 
 class Config:
@@ -80,8 +95,8 @@ class Config:
 
         self.keystore_path = os.path.join(self.project_dir, android.get("keystore-path", "debug.keystore"))
         self.keystore_alias = android.get("keystore-alias", "androiddebugkey")
-        self.keystore_store_pass = str(android.get("keystore-store-pass", "android"))
-        self.keystore_key_pass = str(android.get("keystore-key-pass", "android"))
+        self.keystore_store_pass = _resolve_password(android.get("keystore-store-pass", "android"), "keystore-store-pass")
+        self.keystore_key_pass = _resolve_password(android.get("keystore-key-pass", "android"), "keystore-key-pass")
 
         signing = android.get("signing", {})
         # v4 needs incremental-fs support (API 30+) to have any effect — off

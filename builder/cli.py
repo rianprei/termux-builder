@@ -24,10 +24,11 @@ def main():
 
     sub = parser.add_subparsers(dest="command")
 
-    build_p = sub.add_parser("build", help="Build APK from project")
+    build_p = sub.add_parser("build", help="Build APK or AAB from project")
     build_p.add_argument("project", help="Project directory")
     build_p.add_argument("--clean", action="store_true", help="Clean build")
     build_p.add_argument("--install", action="store_true", help="Install after build")
+    build_p.add_argument("--aab", action="store_true", help="Build a signed Android App Bundle")
     build_p.add_argument("--flavor", help="Build flavor (declared under 'flavors:' in project.yml)")
     build_p.add_argument("--device", help="Target device serial for install")
 
@@ -180,6 +181,10 @@ def _build(args):
     log.info("")
 
     config = Config(args.project, flavor=getattr(args, "flavor", None))
+    build_aab = getattr(args, "aab", False) or config.aab_enabled
+
+    if build_aab and args.install:
+        raise ValueError("AAB builds cannot be installed directly; build an APK without --aab to use --install")
 
     if args.clean:
         _do_clean(config)
@@ -190,7 +195,7 @@ def _build(args):
     deps.resolve(config)
     manifest.merge(config)
     resources.compile_resources(config)
-    density_splits = resources.link_resources(config) or []
+    density_splits = [] if build_aab else resources.link_resources(config) or []
     buildconfig.generate(config)
 
     aidl.compile(config)
@@ -201,6 +206,14 @@ def _build(args):
     compiler.compile_java(config)
     compiler.compile_kotlin(config)
     dexer.dex(config)
+
+    if build_aab:
+        from builder import aab
+        aab_path = aab.build_bundle(config)
+        log.info("")
+        log.info(color("BUILD SUCCESSFUL in %.1fs", "green"), time.time() - start)
+        log.info("AAB: %s", aab_path)
+        return
 
     abis = packager.available_abis(config) if config.abi_splits else []
     install_set = None

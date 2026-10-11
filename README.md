@@ -41,6 +41,7 @@ termux-builder build . --clean
 |---------|-----------|
 | `termux-builder init <nome>` | Cria projeto novo com template |
 | `termux-builder build <dir>` | Compila e gera APK |
+| `termux-builder build <dir> --aab` | Compila e gera um Android App Bundle assinado |
 | `termux-builder build <dir> --install` | Compila e instala via adb |
 | `termux-builder build <dir> --clean` | Build limpo (remove artifacts) |
 | `termux-builder clean <dir>` | Remove .build/ |
@@ -90,6 +91,7 @@ android:
 
   build-type: release     # debug ou release
   java-version: 17
+  aab: false              # true gera AAB; tambem pode usar build --aab
   view-binding: true      # gera classes de binding
   compose: false          # Jetpack Compose (experimental)
   r8: true                # minificacao R8 (release only)
@@ -97,8 +99,8 @@ android:
 
   keystore-path: my.keystore
   keystore-alias: mykey
-  keystore-store-pass: password
-  keystore-key-pass: password
+  keystore-store-pass: "env:ANDROID_KEYSTORE_PASSWORD"
+  keystore-key-pass: "env:ANDROID_KEY_PASSWORD"
 
   signing:              # todos opcionais, defaults abaixo
     v1: true
@@ -106,6 +108,8 @@ android:
     v3: true
     v4: false           # true automatico se min-sdk >= 30
 ```
+
+Defina as variaveis de ambiente antes de um build de release. Valores sem o prefixo `env:` continuam aceitos para compatibilidade; mantenha senhas de release fora do `project.yml` e do Git. Builds AAB verificam a estrutura e a assinatura do arquivo e nao podem ser combinados com `--install`.
 
 ## Estrutura do Projeto
 
@@ -177,6 +181,22 @@ src/jniLibs/
 └── x86_64/
     └── libfoo.so
 ```
+
+## Matriz de compatibilidade verificada
+
+| Fluxo ou recurso | Estado | Escopo verificado / limite |
+|------------------|--------|----------------------------|
+| `project.yml` nativo, Java → APK assinado | VALIDATED | Build local em Linux x86_64 com Android API 34 e Build Tools 35.0.0; `apksigner verify` aprovado. |
+| `project.yml` nativo, Java → AAB | VALIDATED | Bundle de módulo base; `jarsigner`, `bundletool validate` e geração de APK universal aprovados. |
+| Instalação e abertura no Android | VALIDATED | APK direto e APK universal do AAB instalados e abertos em Android 16/API 36, arm64. Assinatura de debug; não é validação de publicação. |
+| Build executado dentro do Termux/Bionic arm64 | UNVERIFIED | A validação no dispositivo cobriu instalação e execução do app, não a execução do builder dentro do sandbox do Termux. |
+| Kotlin, flavors e Compose | UNVERIFIED | Existem caminhos de implementação, mas não foram incluídos no build ponta a ponta desta matriz. Compose continua experimental. |
+| Projetos Gradle/AGP, Kotlin DSL, Capacitor e plugins Gradle | NOT IMPLEMENTED | O pipeline consome `project.yml`; não há adaptador para esses modelos de projeto. |
+| Herança Maven, BOM, `dependencyManagement` e exclusões avançadas | NOT IMPLEMENTED | O resolvedor atual não implementa toda a semântica do Maven. |
+| Placeholders e diretivas `tools:*` no merge de manifests | NOT IMPLEMENTED | O merge atual não equivale ao merger do AGP. |
+| Módulos de feature/dynamic delivery em AAB | NOT IMPLEMENTED | O AAB validado contém somente o módulo `base`. |
+
+`VALIDATED` descreve apenas as combinações e comandos listados acima. O teste em Linux não comprova execução nativa em Termux/Bionic; a assinatura de debug comprova integridade, não confiança ou identidade de publicação.
 
 ## Comparacao
 
