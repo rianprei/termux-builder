@@ -232,7 +232,7 @@ As fontes Java geradas por AIDL também são invalidadas quando interfaces são 
 
 ViewBinding regenera suas fontes em um diretório limpo e falha em XML malformado. Um rebuild de APK no host Linux confirmou que o binding de um layout removido desaparece do DEX, com CRC e assinatura válidos. Essa validação não demonstra paridade completa com o ViewBinding do AGP.
 
-Os campos `android.min-sdk`, `android.target-sdk` e o `version-code` efetivo (incluindo flavors) exigem inteiros positivos; strings, booleanos, valores fracionários e `null` são recusados. Isso valida formato, sem comprovar compatibilidade da toolchain com cada nível de SDK.
+Os campos `android.min-sdk`, `android.target-sdk` , `android.java-version` e o `version-code` efetivo (incluindo flavors) exigem inteiros positivos; strings, booleanos, valores fracionários e `null` são recusados. Isso valida formato, sem comprovar compatibilidade da toolchain com cada nível de SDK ou alvo Java. O fallback existente para compatibilidade DEX/dx reduz alvos Java acima de 8 para Java 8 e agora emite aviso explícito; configure um D8 disponível para preservar o alvo solicitado.
 
 A seção `bins` exige um mapa de nomes de ferramentas para strings de executáveis não vazias, sem NUL. Nomes de comandos e caminhos explícitos continuam aceitos; argumentos adicionais não fazem parte desse campo.
 

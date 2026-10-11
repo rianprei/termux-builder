@@ -14,6 +14,7 @@ def _dexer_is_dx(config):
 def _effective_java_version(config):
     # dx only supports up to class version 52 (Java 8)
     if _dexer_is_dx(config) and config.java_version > 8:
+        log.warning("DEX compatibility fallback: requested Java %s -> Java 8; select an available d8 to keep the requested target", config.java_version)
         return 8
     return config.java_version
 

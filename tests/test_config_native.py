@@ -18,7 +18,7 @@ class NativeLibraryDiscoveryTests(unittest.TestCase):
                 Config(tempdir, flavor='paid')
 
     def test_sdk_levels_and_version_code_require_positive_integers(self):
-        for field in ('min-sdk', 'target-sdk', 'version-code'):
+        for field in ('min-sdk', 'target-sdk', 'version-code', 'java-version'):
             for value in ('34', True, 0, -1, 34.5, None):
                 with self.subTest(field=field, value=value), tempfile.TemporaryDirectory() as tempdir:
                     with open(os.path.join(tempdir, 'AndroidManifest.xml'), 'w') as manifest:

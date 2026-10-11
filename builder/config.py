@@ -194,7 +194,7 @@ class Config:
         self.version_name = str(flavor_cfg.get("version-name", android.get("version-name", "1.0.0")))
         self.build_type = android.get("build-type", "debug")
         self.java_version = android.get("java-version", 17)
-        for name, value in (("min-sdk", self.min_sdk), ("target-sdk", self.target_sdk), ("version-code", self.version_code)):
+        for name, value in (("min-sdk", self.min_sdk), ("target-sdk", self.target_sdk), ("version-code", self.version_code), ("java-version", self.java_version)):
             if type(value) is not int or value <= 0:
                 raise ValueError(f"android.{name} must be a positive integer")
 

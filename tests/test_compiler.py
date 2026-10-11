@@ -212,6 +212,22 @@ public class Generator extends AbstractProcessor {
 
 
 class KotlinProcessorWiringTests(unittest.TestCase):
+    def test_java_target_fallback_is_reported(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            config = SimpleNamespace(build_dir=temp, kotlin_classes_dir=str(root / 'kotlin'),
+                java_classes_dir=str(root / 'java'), find_kotlin_files=lambda: ['Main.kt'],
+                find_lib_jars=lambda: [], bin_d8='dx', java_version=17,
+                bin_kotlinc='kotlinc', compose=False)
+            with patch('builder.compiler._resolve_android_jar', return_value='android.jar'), patch(
+                'builder.compiler.run'
+            ) as run, patch('builder.compiler.log.warning') as warning:
+                compiler.compile_kotlin(config)
+            command = run.call_args.args[0]
+            self.assertEqual(command[command.index('-jvm-target') + 1], '1.8')
+            warning.assert_called_once()
+            self.assertIn('fallback', warning.call_args.args[0])
+
     def test_kapt_binary_outputs_are_on_final_compiler_classpath(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

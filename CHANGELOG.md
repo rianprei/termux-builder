@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Valida java-version como inteiro positivo e torna explicito nos logs o fallback existente para alvo Java 8 em modo de compatibilidade DEX/dx.
+
 - Valida niveis de SDK e version-code efetivo como inteiros positivos, incluindo overrides de flavor, antes da preparacao do build.
 
 - Verifica rebuild AAB pela CLI sem clean apos desabilitar KSP, incluindo remocao de classes/recursos e nova validacao do bundle e da assinatura.
