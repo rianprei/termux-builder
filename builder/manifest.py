@@ -2,7 +2,7 @@ import os
 import re
 import xml.etree.ElementTree as ET
 
-from .utils import log
+from .utils import is_reserved_maven_cache_path, log
 
 
 _ANDROID_NS = "http://schemas.android.com/apk/res/android"
@@ -44,9 +44,36 @@ _SINGLETON_TAGS = {
 
 
 def _qualified_class_name(tag, value, source_package):
-    if tag in _CLASS_NAME_TAGS and value and value.startswith(".") and source_package:
-        return source_package + value
+    if tag in _CLASS_NAME_TAGS and value and source_package:
+        if value.startswith("."):
+            return source_package + value
+        if "." not in value:
+            return source_package + "." + value
     return value
+
+
+def _qualify_manifest_class_names(root, source_package):
+    if not source_package:
+        return
+    for element in root.iter():
+        name_attribute = _ANDROID + "name"
+        if element.tag in _CLASS_NAME_TAGS and name_attribute in element.attrib:
+            element.attrib[name_attribute] = _qualified_class_name(
+                element.tag, element.attrib[name_attribute], source_package
+            )
+        if element.tag == "activity-alias":
+            target_attribute = _ANDROID + "targetActivity"
+            if target_attribute in element.attrib:
+                element.attrib[target_attribute] = _qualified_class_name(
+                    "activity", element.attrib[target_attribute], source_package
+                )
+        if element.tag == "application":
+            for attribute in ("appComponentFactory", "backupAgent", "manageSpaceActivity"):
+                key = _ANDROID + attribute
+                if key in element.attrib:
+                    element.attrib[key] = _qualified_class_name(
+                        "application", element.attrib[key], source_package
+                    )
 
 
 def _match_key(element, source_package=None):
@@ -379,18 +406,46 @@ def _merge_children(
 def _ordered_manifest_paths(config, manifest_paths):
     remaining = set(manifest_paths)
     ordered = []
+
+    def dependency_coordinate(path):
+        libs_root = os.path.realpath(config.libs_dir)
+        directory = os.path.realpath(os.path.dirname(path))
+        while directory != libs_root:
+            try:
+                if os.path.commonpath((libs_root, directory)) != libs_root:
+                    return None
+            except ValueError:
+                return None
+            marker = os.path.join(directory, ".termux-builder-coordinate")
+            if os.path.islink(marker):
+                raise ValueError(f"Dependency coordinate marker must not be a symlink: {marker}")
+            if os.path.isfile(marker):
+                with open(marker) as file:
+                    return file.read().strip()
+            directory = os.path.dirname(directory)
+        return None
+
     for coordinate in getattr(config, "dependencies", []) or []:
         if not isinstance(coordinate, str):
             continue
         parts = coordinate.split(":")
         if len(parts) != 3:
             continue
-        directory = f"{parts[1]}-{parts[2]}"
-        matches = sorted(
-            path
-            for path in remaining
-            if os.path.relpath(path, config.libs_dir).split(os.sep, 1)[0] == directory
-        )
+        version = parts[2]
+        if version.startswith("[") and version.endswith("]") and "," not in version:
+            version = version[1:-1]
+        directory = f"{parts[1]}-{version}"
+        canonical_coordinate = f"{parts[0]}:{parts[1]}:{version}"
+        matches = []
+        for path in sorted(remaining):
+            cached_coordinate = dependency_coordinate(path)
+            legacy_directory = (
+                os.path.relpath(path, config.libs_dir).split(os.sep, 1)[0] == directory
+            )
+            if cached_coordinate == canonical_coordinate or (
+                cached_coordinate is None and legacy_directory
+            ):
+                matches.append(path)
         ordered.extend(matches)
         remaining.difference_update(matches)
     ordered.extend(sorted(remaining))
@@ -404,16 +459,61 @@ def merge(config):
         config.manifest_source_path = source_manifest_path
 
     lib_manifests = []
+    resolved_dependency_dirs = getattr(config, "resolved_dependency_dirs", None)
+    libs_root = os.path.realpath(config.libs_dir)
+    if resolved_dependency_dirs is not None:
+        resolved_dependency_dirs = {
+            os.path.realpath(directory) for directory in resolved_dependency_dirs
+        }
     if os.path.isdir(config.libs_dir):
         for root_dir, directories, files in os.walk(config.libs_dir):
             directories.sort()
-            if "AndroidManifest.xml" in files:
-                manifest_path = os.path.join(root_dir, "AndroidManifest.xml")
-                if os.path.islink(manifest_path):
-                    raise ValueError(f"Library manifest must not be a symlink: {manifest_path}")
-                if not os.path.isfile(manifest_path):
-                    raise ValueError(f"Library manifest must be a regular file: {manifest_path}")
-                lib_manifests.append(manifest_path)
+            if "AndroidManifest.xml" not in files:
+                continue
+            if (
+                hasattr(config, "_is_legacy_maven_cache_directory")
+                and config._is_legacy_maven_cache_directory(root_dir)
+            ):
+                continue
+            reserved_cache_entry = is_reserved_maven_cache_path(config.libs_dir, root_dir)
+            if reserved_cache_entry and resolved_dependency_dirs is None:
+                continue
+            manifest_path = os.path.join(root_dir, "AndroidManifest.xml")
+            if os.path.islink(manifest_path):
+                raise ValueError(f"Library manifest must not be a symlink: {manifest_path}")
+            if not os.path.isfile(manifest_path):
+                raise ValueError(f"Library manifest must be a regular file: {manifest_path}")
+            dependency_dir = None
+            if resolved_dependency_dirs is not None:
+                current = os.path.realpath(root_dir)
+                while current != libs_root:
+                    try:
+                        if os.path.commonpath((libs_root, current)) != libs_root:
+                            break
+                    except ValueError:
+                        break
+                    markers = (
+                        os.path.join(current, ".termux-builder-coordinate"),
+                        os.path.join(current, ".transitive"),
+                    )
+                    for marker in markers:
+                        if os.path.islink(marker):
+                            raise ValueError(f"Dependency marker must not be a symlink: {marker}")
+                        if os.path.isfile(marker):
+                            dependency_dir = current
+                            break
+                    if dependency_dir is not None:
+                        break
+                    current = os.path.dirname(current)
+                if reserved_cache_entry and dependency_dir is None:
+                    continue
+                if (
+                    resolved_dependency_dirs is not None
+                    and dependency_dir is not None
+                    and dependency_dir not in resolved_dependency_dirs
+                ):
+                    continue
+            lib_manifests.append(manifest_path)
     lib_manifests = _ordered_manifest_paths(config, lib_manifests)
 
     ET.register_namespace("android", _ANDROID_NS)
@@ -427,6 +527,7 @@ def merge(config):
         raise ValueError(f"App manifest root element must be <manifest>: {source_manifest_path}")
     _validate_tools_attributes(main_root, source_manifest_path)
     _replace_placeholders(main_root, config, source_manifest_path)
+    _qualify_manifest_class_names(main_root, main_root.attrib.get("package"))
     _apply_sdk_configuration(main_root, config)
     source_files = {}
     source_packages = {}
@@ -452,6 +553,7 @@ def merge(config):
             raise ValueError(f"Library manifest root element must be <manifest>: {manifest_path}")
         _validate_tools_attributes(library_root, manifest_path)
         _replace_placeholders(library_root, config, manifest_path)
+        _qualify_manifest_class_names(library_root, library_root.attrib.get("package"))
         source_priorities[manifest_path] = priority
         _merge_children(
             main_root,

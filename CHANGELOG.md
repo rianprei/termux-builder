@@ -1,7 +1,24 @@
 ## Unreleased
 
+- Endurece a resolucao Maven: coordenadas invalidas, POMs malformados, repositorios inacessiveis, redirects e artefatos ausentes agora encerram a operacao com erro; downloads sao limitados as origens HTTPS configuradas, usam temporarios exclusivos e nao promovem arquivos incompletos ao cache.
+- Valida o formato do `.sha1` retornado pelo repositorio e documenta quando a verificacao do checksum foi omitida; adiciona regressao para symlink em temporario, falha de rede e dependencias ausentes.
+- Separa cache e artefatos extraidos por `groupId`, confere SHA-256 ao reutilizar binarios e arquivos expandidos, e registra coordenada, origem e hashes para auditoria local.
+- Limita a leitura do POM as dependencias diretas, expande propriedades locais, normaliza ranges exatos `[versao]` e aplica mediacao por menor profundidade com desempate pela ordem declarada.
+- Implementa heranca de POM remoto, propriedades herdadas, BOM imports recursivos e gestao local de versao/escopo/exclusao; exclusoes Maven sao aplicadas por caminho e preservadas no cache.
+- Preserva e aplica tipos Maven `jar`/`aar` nas arestas de dependencias e no cache; mantem explicita a limitacao de `parent.relativePath` local, profiles Maven, scopes fora do subconjunto e tipos fora do subconjunto.
+- Mantem somente as versoes Maven selecionadas no classpath sem apagar bibliotecas antigas; registra coordenadas resolvidas para identificar os artefatos gerados.
+- Rejeita entradas AAR com traversal, symlinks ou caminhos duplicados; staging e exclusivo e removido mesmo quando o ZIP e invalido.
+- Continua recusando ranges abertos, escopos nao suportados, classifiers, packaging que nao seja `jar`/`aar` e tipos desconhecidos; impede copiar POMs ou formatos desconhecidos com extensao `.jar`.
+- Gera saidas AAPT2 distintas e estaveis para AARs com o mesmo nome, limita o link aos recursos ativos em ordem previsivel e deixa de apagar ZIPs arbitrarios do diretorio de build.
 - Evolui o merge nativo de manifests com prioridade deterministica, combinacao de atributos, diagnostico de conflitos, placeholders por projeto/flavor, diretivas `tools:*` selecionadas e validacao de `minSdkVersion`.
 - Falha explicitamente em placeholders ausentes, diretivas `tools:*` desconhecidas, XML invalido e manifests de biblioteca por symlink; documenta os limites restantes frente ao AGP.
+- Publica APKs e AABs por staging atomico somente depois da verificacao; rejeita destinos por symlink ou fora da arvore de build e impede colisao de saidas entre flavors.
+- Valida com `apksigner` o APK e o `.idsig` de V4 antes de publicar o par assinado; se qualquer rename falhar, restaura o par anterior e preserva backups para recuperacao quando o rollback tambem falha.
+- Valida os diretorios AAPT2 e AAB antes de cria-los, qualifica nomes de classes relativos nos manifests pelo pacote de origem, e une arestas Maven com type implícito/explicito quando resolvem para o mesmo JAR ou AAR.
+- Ignora manifests e JARs de staging Maven incompleto, recupera diretorios de DEX temporarios de processos mortos e escreve entradas adicionadas ao APK com metadados ZIP estaveis.
+- Identifica o PID no staging AAR e remove diretorios abandonados por processos mortos sem tocar extrações ainda ativas.
+- Inclui DEX de dependencias AAR tanto em APK quanto em AAB; o build real AndroidX gerou 15 entradas DEX em cada formato e passou nas verificacoes de assinatura/estrutura.
+- Expande regressao para caminhos inseguros, falhas de assinatura sem sobrescrever artefatos anteriores, caches incompletos, ZIPs reprodutiveis e integracao AndroidX na CI.
 
 ### Fixed
 - `build --aab` and `android.aab: true` now reach the AAB pipeline after compilation; the APK build remains the default, and AAB output cannot be passed to `--install`.

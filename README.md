@@ -113,6 +113,16 @@ android:
 
 Defina as variaveis de ambiente antes de um build de release. Valores sem o prefixo `env:` continuam aceitos para compatibilidade; mantenha senhas de release fora do `project.yml` e do Git. Builds AAB verificam a estrutura e a assinatura do arquivo e nao podem ser combinados com `--install`.
 
+Quando V4 esta ativo, o build valida o APK e seu arquivo `<apk>.idsig` com `apksigner` antes de publicar o par. A build falha se o assinador nao gerar o sidecar ou se a verificacao V4 falhar; uma falha ao publicar APK ou sidecar tenta restaurar os artefatos anteriores e informa onde recuperar backups se o rollback tambem falhar.
+
+### Dependencias Maven
+
+Declare coordenadas `group:artifact:versao` em `dependencies`. O resolvedor baixa somente de Maven Central e Google Maven por HTTPS, recusa redirecionamentos e interrompe o build quando uma coordenada ou artefato nao pode ser obtido. Downloads usam arquivo temporario exclusivo e so passam ao cache quando concluidos. O digest `.sha1` publicado junto do artefato e conferido quando disponivel; se o repositorio responde 404, o builder avisa que a verificacao foi pulada, mas uma falha de rede encerra a resolucao. O cache guarda SHA-256, coordenada e URL de origem, e confere os hashes do artefato e dos arquivos extraidos antes de reutiliza-los.
+
+O resolvedor le dependencias diretas e herdadas, expande propriedades locais e herdadas e valores basicos de `project.*`, ignora dependencias `test`, `provided` e `optional`, e inclui `compile` e `runtime`. Entradas locais de `dependencyManagement` e BOMs importados podem fornecer versao, escopo e exclusoes. Exclusoes sao aplicadas por caminho e preservadas no cache; conflitos usam a versao no caminho mais curto, com desempate pela ordem de `dependencies` e depois pela ordem declarada no POM. Artefatos de grupos diferentes usam diretorios de cache separados. JARs Maven antigos reconhecidos no cache deixam de entrar no classpath quando uma versao diferente foi selecionada, sem remover esses arquivos do projeto.
+
+Heranca resolve o POM pai remoto pelas coordenadas Maven; `relativePath` local, profiles, ranges abertos, escopos `system`/`import` fora de BOMs, classifiers, packaging alem de `jar`/`aar` e tipos nao suportados falham explicitamente. Dependencias com type `jar` e `aar` selecionam a extensao declarada; dependencias sem type usam o `packaging` do POM. A notacao de versao exata `[1.2.3]` e aceita. A implementacao Maven continua parcial e nao equivale ao Maven/Gradle; confira a matriz de compatibilidade antes de depender dessas construcoes. SHA-1 remoto detecta corrupcao de transferencia quando publicado; SHA-256 local detecta alteracoes posteriores no cache. Nenhum deles comprova autenticidade do artefato; sem sidecar SHA-1 o builder avisa que a verificacao de transferencia foi omitida.
+
 ### Merge de Manifest
 
 O builder expande `android.manifest-placeholders` em atributos XML antes de mesclar manifestos. `${applicationId}` usa o ID final do app, incluindo o sufixo da flavor. Uma flavor pode sobrescrever valores em `flavors.<nome>.manifest-placeholders`.
@@ -196,44 +206,20 @@ src/jniLibs/
 
 | Fluxo ou recurso | Estado | Escopo verificado / limite |
 |------------------|--------|----------------------------|
-| `project.yml` nativo, Java → APK assinado | VALIDATED | Build local em Linux x86_64 com Android API 34 e Build Tools 35.0.0; `apksigner verify` aprovado. |
-| `project.yml` nativo, Java → AAB | VALIDATED | Bundle de módulo base; `jarsigner`, `bundletool validate` e geração de APK universal aprovados. |
-| Instalação e abertura no Android | VALIDATED | APK direto e APK universal do AAB instalados e abertos em Android 16/API 36, arm64. Assinatura de debug; não é validação de publicação. |
-| Build executado dentro do Termux/Bionic arm64 | UNVERIFIED | A validação no dispositivo cobriu instalação e execução do app, não a execução do builder dentro do sandbox do Termux. |
+| `project.yml` nativo, Java + AndroidX → APK assinado | VALIDATED | Build local em Linux x86_64 com plataforma Android API 34, Build Tools 37.0.0 e `androidx.lifecycle:lifecycle-runtime:2.6.1`; `apksigner verify` aprovado e 15 entradas DEX no APK. |
+| `project.yml` nativo, Java + AndroidX → AAB | VALIDATED | Build local de módulo base com 15 entradas DEX; `jarsigner` e `bundletool validate` aprovados. |
+| APK V4 com sidecar `.idsig` | VALIDATED | Scaffold local com `min-sdk: 30`; `apksigner verify -v4-signature-file` confirmou V4. |
+| `bundletool build-apks --mode=universal` | VALIDATED | Executado sobre o AAB AndroidX acima; o APK universal passou `apksigner verify`. |
+| Instalação e abertura no Android | UNVERIFIED | Não instalamos nesta rodada os artefatos gerados pelo código atual; o E2E foi executado em Linux x86_64. |
+| Build executado dentro do Termux/Bionic arm64 | UNVERIFIED | O build desta rodada foi executado em Linux x86_64; compatibilidade do builder no sandbox Termux não foi exercitada. |
+| Bibliotecas JNI/native em APK e AAB | UNVERIFIED | Há descoberta de bibliotecas e código de empacotamento, mas nenhum build E2E com bibliotecas `.so` reais foi executado nesta rodada. |
 | Kotlin, flavors e Compose | UNVERIFIED | Existem caminhos de implementação, mas não foram incluídos no build ponta a ponta desta matriz. Compose continua experimental. |
 | Projetos Gradle/AGP, Kotlin DSL, Capacitor e plugins Gradle | NOT IMPLEMENTED | O pipeline consome `project.yml`; não há adaptador para esses modelos de projeto. |
-| Herança Maven, BOM, `dependencyManagement` e exclusões avançadas | NOT IMPLEMENTED | O resolvedor atual não implementa toda a semântica do Maven. |
-| Merge nativo de manifests, placeholders e diretivas selecionadas | UNVERIFIED | Testes unitarios cobrem prioridade, conflitos, placeholders, `tools:*` suportado e `uses-sdk`; ainda nao ha build AAR ponta a ponta nem equivalencia total com AGP. |
+| Maven: herança remota, propriedades, BOM imports, gestão de versão/escopo/exclusão, scopes compile/runtime, optional, mediação nearest, tipos jar/aar, exclusões por caminho e cache com hash SHA-256 | PARTIAL | Suíte unitária e build real de APK/AAB com `androidx.lifecycle:lifecycle-runtime:2.6.1`, incluindo DEX de bibliotecas. Parent `relativePath`, profiles, classifiers, tipos além de jar/aar e outras regras Maven/Gradle não estão implementados. |
+| Merge nativo de manifests, placeholders e diretivas selecionadas | PARTIAL | Testes unitários cobrem prioridade, conflitos, placeholders, `tools:*` suportado e `uses-sdk`; o pipeline também foi exercitado com AAR real. Não há equivalência total com AGP. |
 | Módulos de feature/dynamic delivery em AAB | NOT IMPLEMENTED | O AAB validado contém somente o módulo `base`. |
 
 `VALIDATED` descreve apenas as combinações e comandos listados acima. O teste em Linux não comprova execução nativa em Termux/Bionic; a assinatura de debug comprova integridade, não confiança ou identidade de publicação.
-
-## Comparacao
-
-| Feature | Android Studio | ApkBuilder | **termux-builder** |
-|---------|---------------|------------|-------------------|
-| Build APK | ✅ | ✅ | ✅ |
-| Java | ✅ | ✅ | ✅ |
-| Kotlin | ✅ | ✅ | ✅ |
-| ViewBinding | ✅ | ✅ | ✅ |
-| BuildConfig | ✅ | ❌ | ✅ |
-| R8/ProGuard | ✅ | ❌ | ✅ |
-| Dependencias Maven | ✅ | ❌ | ✅ |
-| Suporte .aar | ✅ | ❌ | ✅ |
-| Manifest merge | ✅ | ❌ | Parcial (sem equivalencia total com AGP) |
-| Debug keystore auto | ✅ | ❌ | ✅ |
-| Auto-installer | ❌ | ❌ | ✅ |
-| Doctor/diagnostico | ❌ | ❌ | ✅ |
-| Scaffolding (init) | ✅ | ❌ | ✅ |
-| Install via adb | ✅ | ❌ | ✅ |
-| Testes JUnit | ✅ | ❌ | ✅ |
-| Lint | ✅ | ❌ | ✅ |
-| Decompile/Recompile | ❌ | ❌ | ✅ |
-| Compose | ✅ | ❌ | ✅ (experimental) |
-| JNI/native libs | ✅ | ✅ | ✅ |
-| Roda no celular | ❌ | ✅ | ✅ |
-| Sem root | ❌ | ✅ | ✅ |
-| Self-contained | ❌ | ❌ | ✅ |
 
 ## Diagnostico
 

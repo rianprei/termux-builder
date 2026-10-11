@@ -56,6 +56,47 @@ def find_files(base_dir, suffix):
     return result
 
 
+def path_is_within(root, path):
+    root = os.path.realpath(root)
+    path = os.path.realpath(path)
+    try:
+        return os.path.commonpath((root, path)) == root
+    except ValueError:
+        return False
+
+
+def is_reserved_maven_cache_path(libs_dir, path):
+    cache_root = os.path.join(libs_dir, ".termux-builder", "maven")
+    return path_is_within(cache_root, path)
+
+
+def ensure_output_path(build_dir, path, label="Build output"):
+    path = os.path.abspath(path)
+    if os.path.islink(path):
+        raise ValueError(f"{label} must not be a symlink: {path}")
+    build_root = os.path.realpath(build_dir)
+    output_parent = os.path.realpath(os.path.dirname(path))
+    if not path_is_within(build_root, output_parent):
+        raise ValueError(f"{label} must stay inside the build directory: {path}")
+    return path
+
+
+def variant_name(config):
+    flavor = getattr(config, "flavor", None)
+    return f"{config.name}-{flavor}" if flavor else config.name
+
+
+def dex_sort_key(path):
+    name = os.path.basename(path)
+    if name == "classes.dex":
+        return (0, 1, path)
+    if name.startswith("classes") and name.endswith(".dex"):
+        number = name[7:-4]
+        if number.isdigit():
+            return (0, int(number), path)
+    return (1, 0, path)
+
+
 def ensure_dir(path):
     os.makedirs(path, exist_ok=True)
     return path

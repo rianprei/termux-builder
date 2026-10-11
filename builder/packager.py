@@ -1,7 +1,20 @@
 import os
 import shutil
+import tempfile
 import zipfile
-from builder.utils import find_files, log
+from builder.utils import dex_sort_key, ensure_output_path, find_files, log
+
+
+def _append_file(apk, path, archive_name, used_names):
+    if archive_name in used_names:
+        raise RuntimeError(f"Duplicate APK entry: {archive_name}")
+    info = zipfile.ZipInfo(archive_name, (1980, 1, 1, 0, 0, 0))
+    info.compress_type = zipfile.ZIP_DEFLATED
+    info.create_system = 3
+    info.external_attr = 0o100644 << 16
+    with open(path, "rb") as source:
+        apk.writestr(info, source.read())
+    used_names.add(archive_name)
 
 
 def package(config, abi=None):
@@ -9,54 +22,71 @@ def package(config, abi=None):
 
     unsigned = os.path.join(config.bin_dir, f"unsigned-{abi}.apk" if abi else "unsigned.apk")
     base_apk = os.path.join(config.bin_dir, "gen.apk.res")
+    build_dir = getattr(config, "build_dir", config.bin_dir)
+    ensure_output_path(build_dir, unsigned, "Unsigned APK output")
+    ensure_output_path(build_dir, base_apk, "Resource APK input")
 
     if not os.path.isfile(base_apk):
         raise FileNotFoundError("Resource APK not found — aapt2 link may have failed")
 
-    shutil.copy2(base_apk, unsigned)
+    # Keep app DEX first; dex_sort_key provides numeric ordering for multidex.
+    dex_files = [
+        path for path in find_files(config.dex_dir, ".dex")
+        if os.path.dirname(path) == config.dex_dir
+    ]
+    dex_files.sort(key=dex_sort_key)
+    if not dex_files:
+        raise RuntimeError("No DEX files found")
 
-    with zipfile.ZipFile(unsigned, "a", zipfile.ZIP_DEFLATED) as apk:
-        # top-level dex only (app's own compiled classes) — subdirs like
-        # desugar_lib/ hold the desugar runtime backport dex, which needs a
-        # unique classesN.dex name via the dedup loop below, not the raw
-        # basename (real bug found in testing: both named "classes.dex",
-        # zip collision, apksigner rejected the APK with "Multiple ZIP
-        # entries with the same name")
-        dex_files = sorted(
-            f for f in find_files(config.dex_dir, ".dex")
-            if os.path.dirname(f) == config.dex_dir
-        )
-        if not dex_files:
-            raise RuntimeError("No DEX files found")
-
-        for dex in dex_files:
-            apk.write(dex, os.path.basename(dex))
-
-        # collect all dex names already added to avoid conflicts
-        used_names = {os.path.basename(d) for d in dex_files}
-        dex_index = len(dex_files) + 1
-
-        extra_dex_dirs = [os.path.dirname(j) for j in config.find_lib_jars()]
-        desugar_lib_dir = os.path.join(config.dex_dir, "desugar_lib")
-        if os.path.isdir(desugar_lib_dir):
-            extra_dex_dirs.append(desugar_lib_dir)
-
-        for lib_dir in extra_dex_dirs:
-            lib_dexes = find_files(lib_dir, ".dex")
-            for ld in lib_dexes:
-                name = f"classes{dex_index}.dex"
-                while name in used_names:
-                    dex_index += 1
-                    name = f"classes{dex_index}.dex"
-                apk.write(ld, name)
-                used_names.add(name)
+    dex_entries = [(path, os.path.basename(path)) for path in dex_files]
+    used_dex_names = {name for _, name in dex_entries}
+    dex_index = len(dex_files) + 1
+    library_dex_dir = getattr(config, "library_dex_dir", None)
+    if library_dex_dir and os.path.islink(library_dex_dir):
+        raise RuntimeError(f"Library DEX cache must not be a symlink: {library_dex_dir}")
+    if library_dex_dir and not os.path.isdir(library_dex_dir):
+        raise RuntimeError("Library DEX cache disappeared before APK packaging; rerun the build")
+    extra_dex_dirs = [library_dex_dir] if library_dex_dir else []
+    desugar_lib_dir = os.path.join(config.dex_dir, "desugar_lib")
+    if os.path.isdir(desugar_lib_dir):
+        extra_dex_dirs.append(desugar_lib_dir)
+    for lib_dir in extra_dex_dirs:
+        for path in sorted(find_files(lib_dir, ".dex"), key=dex_sort_key):
+            name = f"classes{dex_index}.dex"
+            while name in used_dex_names:
                 dex_index += 1
+                name = f"classes{dex_index}.dex"
+            dex_entries.append((path, name))
+            used_dex_names.add(name)
+            dex_index += 1
 
-        for lib_abi, so_path in config.find_native_libs():
-            if abi and lib_abi != abi:
-                continue
-            arc = f"lib/{lib_abi}/{os.path.basename(so_path)}"
-            apk.write(so_path, arc)
+    native_entries = []
+    for lib_abi, so_path in config.find_native_libs():
+        if abi and lib_abi != abi:
+            continue
+        native_entries.append((so_path, f"lib/{lib_abi}/{os.path.basename(so_path)}"))
+    native_entries.sort(key=lambda entry: entry[1])
+
+    fd, staging_path = tempfile.mkstemp(
+        prefix=".unsigned-", suffix=".apk", dir=os.path.dirname(unsigned)
+    )
+    os.close(fd)
+    try:
+        shutil.copyfile(base_apk, staging_path)
+        with zipfile.ZipFile(staging_path, "a", zipfile.ZIP_DEFLATED) as apk:
+            base_names = apk.namelist()
+            if len(base_names) != len(set(base_names)):
+                raise RuntimeError("Resource APK contains duplicate ZIP entries")
+            used_names = set(base_names)
+            for path, name in dex_entries:
+                _append_file(apk, path, name, used_names)
+            for path, name in native_entries:
+                _append_file(apk, path, name, used_names)
+        os.replace(staging_path, unsigned)
+        staging_path = None
+    finally:
+        if staging_path and os.path.lexists(staging_path):
+            os.unlink(staging_path)
 
     log.info("APK packaged: %s", unsigned)
     return unsigned

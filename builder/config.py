@@ -1,10 +1,24 @@
 import xml.etree.ElementTree as ET
+import filecmp
 import os
 import re
+import zipfile
 import yaml
-from builder.utils import find_bin, log
+from builder.utils import find_bin, is_reserved_maven_cache_path, log
 
 _SYSTEM_ANDROID_JAR = "/data/data/com.termux/files/usr/share/java/android.jar"
+
+
+def _validate_path_segment(value, label):
+    if (
+        not isinstance(value, str)
+        or not value
+        or value in (".", "..")
+        or any(character in value for character in ("/", "\\", "\x00"))
+        or any(ord(character) < 32 for character in value)
+    ):
+        raise ValueError(f"Invalid {label}: expected a single safe path segment")
+    return value
 
 
 def _resolve_password(value, setting):
@@ -21,6 +35,91 @@ def _resolve_password(value, setting):
     return password
 
 
+def _archive_member_matches_file(archive, member, path):
+    try:
+        with archive.open(member) as source, open(path, "rb") as target:
+            while True:
+                source_chunk = source.read(8192)
+                target_chunk = target.read(8192)
+                if source_chunk != target_chunk:
+                    return False
+                if not source_chunk:
+                    return True
+    except (OSError, RuntimeError, zipfile.BadZipFile):
+        return False
+
+
+def _is_legacy_maven_cache_directory(config, directory):
+    libs_dir = os.path.abspath(config.libs_dir)
+    directory = os.path.abspath(directory)
+    if os.path.dirname(directory) != libs_dir or os.path.islink(directory):
+        return False
+    cache_dir = getattr(config, "cache_dir", None)
+    if not cache_dir:
+        return False
+
+    name = os.path.basename(directory)
+    dependency_cache = os.path.join(cache_dir, "deps")
+    jar_path = os.path.join(directory, f"{name}.jar")
+    cached_jar = os.path.join(dependency_cache, f"{name}.jar")
+    if (
+        not os.path.islink(jar_path)
+        and os.path.isfile(jar_path)
+        and not os.path.islink(cached_jar)
+        and os.path.isfile(cached_jar)
+        and filecmp.cmp(jar_path, cached_jar, shallow=False)
+    ):
+        return True
+
+    cached_aar = os.path.join(dependency_cache, f"{name}.aar")
+    if os.path.islink(cached_aar) or not os.path.isfile(cached_aar):
+        return False
+    expected = {}
+    try:
+        with zipfile.ZipFile(cached_aar) as archive:
+            for member in archive.infolist():
+                if member.is_dir():
+                    continue
+                relative = member.filename
+                if relative == "classes.jar":
+                    relative = f"{name}.jar"
+                parts = relative.replace("\\", "/").split("/")
+                if relative.startswith("/") or any(part in ("", ".", "..") for part in parts):
+                    return False
+                if relative in expected:
+                    return False
+                path = os.path.join(directory, *parts)
+                if os.path.islink(path) or not os.path.isfile(path):
+                    return False
+                expected[relative] = (member, path, archive)
+    except (OSError, zipfile.BadZipFile):
+        return False
+
+    actual = set()
+    for current, directories, files in os.walk(directory, followlinks=False):
+        if any(os.path.islink(os.path.join(current, name)) for name in directories):
+            return False
+        for filename in files:
+            path = os.path.join(current, filename)
+            if os.path.islink(path) or not os.path.isfile(path):
+                return False
+            relative = os.path.relpath(path, directory).replace(os.sep, "/")
+            if relative == ".transitive":
+                continue
+            actual.add(relative)
+    if actual != set(expected):
+        return False
+
+    try:
+        with zipfile.ZipFile(cached_aar) as archive:
+            return all(
+                _archive_member_matches_file(archive, archive_member, path)
+                for archive_member, path, _ in expected.values()
+            )
+    except (OSError, zipfile.BadZipFile):
+        return False
+
+
 class Config:
     def __init__(self, project_dir, flavor=None):
         self.project_dir = os.path.abspath(project_dir)
@@ -35,13 +134,23 @@ class Config:
         if "android" not in raw:
             raise ValueError("Missing 'android' section in project.yml")
 
-        self.name = raw.get("name", os.path.basename(self.project_dir))
+        self.name = _validate_path_segment(
+            raw.get("name", os.path.basename(self.project_dir)), "project name"
+        )
         android = raw["android"]
 
         self.flavor = flavor
         self.flavors = raw.get("flavors", {})
+        if not isinstance(self.flavors, dict):
+            raise ValueError("flavors must be a mapping")
+        for flavor_name, flavor_config in self.flavors.items():
+            _validate_path_segment(flavor_name, "flavor name")
+            if not isinstance(flavor_config, dict):
+                raise ValueError(f"Flavor configuration must be a mapping: {flavor_name}")
         if flavor is not None and flavor not in self.flavors:
             raise ValueError(f"Unknown flavor: {flavor} (declared: {list(self.flavors)})")
+        if flavor is not None:
+            _validate_path_segment(flavor, "flavor name")
         flavor_cfg = self.flavors.get(flavor, {}) if flavor else {}
 
         self.min_sdk = android.get("min-sdk", 21)
@@ -98,11 +207,14 @@ class Config:
         # flavor source-set overlay: src/<flavor>/{java,res,assets} merged over main src/
         self.flavor_sources_dir = None
         self.flavor_res_dir = None
+        self.flavor_assets_dir = None
         if flavor:
             fsrc = os.path.join(self.project_dir, "src", flavor, "java")
             fres = os.path.join(self.project_dir, "src", flavor, "res")
+            fassets = os.path.join(self.project_dir, "src", flavor, "assets")
             self.flavor_sources_dir = fsrc if os.path.isdir(fsrc) else None
             self.flavor_res_dir = fres if os.path.isdir(fres) else None
+            self.flavor_assets_dir = fassets if os.path.isdir(fassets) else None
 
         self.keystore_path = os.path.join(self.project_dir, android.get("keystore-path", "debug.keystore"))
         self.keystore_alias = android.get("keystore-alias", "androiddebugkey")
@@ -198,18 +310,113 @@ class Config:
     def find_lib_jars(self):
         from builder.utils import find_files
         # lint.jar causes d8/javac errors — filter it out
-        return [j for j in find_files(self.libs_dir, ".jar")
+        jars = [j for j in find_files(self.libs_dir, ".jar")
                 if os.path.basename(j) != "lint.jar"]
+        jars = [
+            jar for jar in jars
+            if not _is_legacy_maven_cache_directory(self, os.path.dirname(jar))
+        ]
+        resolved_dirs = getattr(self, "resolved_dependency_dirs", None)
+        if resolved_dirs is None:
+            return sorted(
+                jar for jar in jars
+                if not is_reserved_maven_cache_path(self.libs_dir, os.path.dirname(jar))
+            )
+
+        resolved_dirs = {os.path.realpath(path) for path in resolved_dirs}
+        selected = []
+        libs_root = os.path.realpath(self.libs_dir)
+        for jar in jars:
+            reserved_cache_entry = is_reserved_maven_cache_path(
+                self.libs_dir, os.path.dirname(jar)
+            )
+            current = os.path.realpath(os.path.dirname(jar))
+            dependency_dir = None
+            while current != libs_root:
+                try:
+                    if os.path.commonpath((libs_root, current)) != libs_root:
+                        break
+                except ValueError:
+                    break
+                if (
+                    os.path.isfile(os.path.join(current, ".termux-builder-coordinate"))
+                    or os.path.isfile(os.path.join(current, ".transitive"))
+                ):
+                    dependency_dir = current
+                    break
+                current = os.path.dirname(current)
+            if reserved_cache_entry and dependency_dir is None:
+                continue
+            if dependency_dir is None or dependency_dir in resolved_dirs:
+                selected.append(jar)
+        return sorted(selected)
+
+    def _is_legacy_maven_cache_directory(self, directory):
+        return _is_legacy_maven_cache_directory(self, directory)
+
+    def _library_dirs(self):
+        library_dirs = {os.path.dirname(jar) for jar in self.find_lib_jars()}
+        resolved_dirs = getattr(self, "resolved_dependency_dirs", None)
+        if resolved_dirs is not None:
+            library_dirs.update(resolved_dirs)
+        return library_dirs
+
+    def find_lib_resource_dirs(self):
+        library_dirs = self._library_dirs()
+        resource_dirs = []
+        for directory in library_dirs:
+            resource_dir = os.path.join(directory, "res")
+            if os.path.islink(resource_dir):
+                raise RuntimeError(f"Dependency resource directory must not be a symlink: {resource_dir}")
+            if os.path.isdir(resource_dir):
+                resource_dirs.append(resource_dir)
+        return sorted(resource_dirs)
+
+    def find_lib_asset_dirs(self):
+        library_dirs = self._library_dirs()
+        asset_dirs = []
+        for directory in library_dirs:
+            asset_dir = os.path.join(directory, "assets")
+            if os.path.islink(asset_dir):
+                raise RuntimeError(f"Dependency asset directory must not be a symlink: {asset_dir}")
+            if os.path.isdir(asset_dir):
+                asset_dirs.append(asset_dir)
+        return sorted(asset_dirs)
 
     def find_native_libs(self):
+        native_dirs = [self.jni_dir]
+        native_dirs.extend(
+            os.path.join(directory, "jni") for directory in sorted(self._library_dirs())
+        )
+        selected = {}
         libs = []
-        if not os.path.isdir(self.jni_dir):
-            return libs
-        for abi in os.listdir(self.jni_dir):
-            abi_dir = os.path.join(self.jni_dir, abi)
-            if not os.path.isdir(abi_dir):
+        for native_dir in native_dirs:
+            if os.path.islink(native_dir):
+                raise RuntimeError(f"Native library directory must not be a symlink: {native_dir}")
+            if not os.path.isdir(native_dir):
                 continue
-            for f in os.listdir(abi_dir):
-                if f.endswith(".so"):
-                    libs.append((abi, os.path.join(abi_dir, f)))
+            for abi in sorted(os.listdir(native_dir)):
+                abi_dir = os.path.join(native_dir, abi)
+                if os.path.islink(abi_dir):
+                    raise RuntimeError(f"Native ABI directory must not be a symlink: {abi_dir}")
+                if not os.path.isdir(abi_dir):
+                    continue
+                for name in sorted(os.listdir(abi_dir)):
+                    if not name.endswith(".so"):
+                        continue
+                    so_path = os.path.join(abi_dir, name)
+                    if os.path.islink(so_path):
+                        raise RuntimeError(f"Native library must not be a symlink: {so_path}")
+                    if not os.path.isfile(so_path):
+                        continue
+                    key = (abi, name)
+                    previous = selected.get(key)
+                    if previous:
+                        if filecmp.cmp(previous, so_path, shallow=False):
+                            continue
+                        raise RuntimeError(
+                            f"Conflicting native library {abi}/{name}: {previous} and {so_path}"
+                        )
+                    selected[key] = so_path
+                    libs.append((abi, so_path))
         return libs

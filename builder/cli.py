@@ -11,7 +11,7 @@ import yaml
 import requests
 
 from builder import __version__
-from builder.utils import color, log
+from builder.utils import color, log, variant_name
 
 
 def main():
@@ -235,7 +235,9 @@ def _build(args):
         if density_splits:
             signed_splits = []
             for density, split_apk in density_splits:
-                signed_out = os.path.join(config.build_dir, f"{config.name}-{density}-{config.build_type}.apk")
+                signed_out = os.path.join(
+                    config.build_dir, f"{variant_name(config)}-{density}-{config.build_type}.apk"
+                )
                 signer.sign_apk(config, split_apk, signed_out)
                 signed_splits.append(signed_out)
             install_set = [apk_path] + signed_splits

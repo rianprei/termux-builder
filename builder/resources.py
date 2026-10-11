@@ -1,7 +1,8 @@
+import hashlib
 import os
 import shutil
 import xml.etree.ElementTree as ET
-from builder.utils import run, ensure_dir, find_files, log
+from builder.utils import ensure_output_path, run, ensure_dir, find_files, log
 
 # System android.jar (Termux native package)
 _SYSTEM_ANDROID_JAR = "/data/data/com.termux/files/usr/share/java/android.jar"
@@ -35,25 +36,82 @@ def compile_resources(config):
         _compile_aapt1(config)
 
 
-def _compile_aapt2(config):
-    log.info("Compiling resources (aapt2)")
-    ensure_dir(config.compiled_res_dir)
+def _dependency_coordinate(config, directory):
+    libs_root = os.path.realpath(config.libs_dir)
+    current = os.path.realpath(directory)
+    while current != libs_root:
+        try:
+            if os.path.commonpath((libs_root, current)) != libs_root:
+                return None
+        except ValueError:
+            return None
+        marker = os.path.join(current, ".termux-builder-coordinate")
+        if os.path.islink(marker):
+            raise ValueError(f"Dependency coordinate marker must not be a symlink: {marker}")
+        if os.path.isfile(marker):
+            with open(marker) as file:
+                return file.read().strip()
+        current = os.path.dirname(current)
+    return None
 
+
+def _partition_library_dirs(config, library_dirs):
+    remaining = set(library_dirs)
+    direct_dirs = []
+    for coordinate in getattr(config, "dependencies", []) or []:
+        if not isinstance(coordinate, str):
+            continue
+        parts = coordinate.split(":")
+        if len(parts) != 3:
+            continue
+        version = parts[2]
+        if version.startswith("[") and version.endswith("]") and "," not in version:
+            version = version[1:-1]
+        canonical_coordinate = f"{parts[0]}:{parts[1]}:{version}"
+        matches = [
+            directory for directory in sorted(remaining)
+            if _dependency_coordinate(config, directory) == canonical_coordinate
+        ]
+        direct_dirs.extend(matches)
+        remaining.difference_update(matches)
+    return sorted(remaining), direct_dirs
+
+
+def _aapt2_resource_jobs(config):
     res_dirs = config.find_res_dirs() if hasattr(config, "find_res_dirs") else [config.res_dir]
+    jobs = []
+    library_res_dirs = sorted(set(config.find_lib_resource_dirs()))
+    transitive_dirs, direct_dirs = _partition_library_dirs(config, library_res_dirs)
+    ordered_library_res_dirs = transitive_dirs + list(reversed(direct_dirs))
+    library_outputs = set()
+    for res in ordered_library_res_dirs:
+        lib_dir = os.path.dirname(res)
+        library_path = os.path.relpath(lib_dir, config.libs_dir).replace(os.sep, "/")
+        library_id = hashlib.sha256(library_path.encode("utf-8")).hexdigest()
+        out = os.path.join(config.compiled_res_dir, f"lib-{library_id}.zip")
+        if out not in library_outputs:
+            jobs.append((res, out))
+            library_outputs.add(out)
+
     for i, res_dir in enumerate(res_dirs):
         out = os.path.join(config.compiled_res_dir, "res.zip" if i == 0 else f"res-flavor{i}.zip")
-        run([config.bin_aapt2, "compile", "--dir", res_dir, "-o", out])
+        jobs.append((res_dir, out))
+    return jobs
 
-    for jar in config.find_lib_jars():
-        lib_dir = os.path.dirname(jar)
-        lib_name = os.path.basename(lib_dir)
-        res = os.path.join(lib_dir, "res")
-        if not os.path.isdir(res):
-            continue
-        out = os.path.join(config.compiled_res_dir, f"{lib_name}.zip")
-        if os.path.exists(out):
-            continue
-        run([config.bin_aapt2, "compile", "--dir", res, "-o", out])
+
+def _compile_aapt2(config):
+    log.info("Compiling resources (aapt2)")
+    ensure_output_path(
+        getattr(config, "build_dir", config.compiled_res_dir),
+        os.path.join(config.compiled_res_dir, ".output-check"),
+        "AAPT2 compiled resource directory",
+    )
+    ensure_dir(config.compiled_res_dir)
+    for res_dir, out in _aapt2_resource_jobs(config):
+        ensure_output_path(
+            getattr(config, "build_dir", config.compiled_res_dir), out, "AAPT2 resource output"
+        )
+        run([config.bin_aapt2, "compile", "--dir", res_dir, "-o", out])
 
 
 def _compile_aapt1(config):
@@ -74,15 +132,21 @@ def link_resources(config, proto_format=False):
 
     if _has_aapt2(config):
         return _link_aapt2(config, android_jar, proto_format=proto_format)
-    else:
-        _link_aapt1(config, android_jar)
-        return None
+    if proto_format:
+        raise RuntimeError("AAB builds require aapt2 with --proto-format; install aapt2 and add it to PATH")
+    _link_aapt1(config, android_jar)
+    return None
 
 
 def _link_aapt2(config, android_jar, proto_format=False):
     log.info("Linking resources (aapt2)")
     # clean gen_dir so stale R.java from old package names is removed
     import shutil
+    ensure_output_path(
+        getattr(config, "build_dir", config.bin_dir),
+        os.path.join(config.gen_dir, ".output-check"),
+        "AAPT generated source output",
+    )
     if os.path.isdir(config.gen_dir):
         shutil.rmtree(config.gen_dir)
     ensure_dir(config.gen_dir)
@@ -103,18 +167,30 @@ def _link_aapt2(config, android_jar, proto_format=False):
     if proto_format:
         args.append("--proto-format")
 
+    asset_dirs = []
+    flavor_assets_dir = getattr(config, "flavor_assets_dir", None)
+    if flavor_assets_dir and os.path.isdir(flavor_assets_dir):
+        asset_dirs.append(flavor_assets_dir)
     if os.path.isdir(config.assets_dir):
-        args += ["-A", config.assets_dir]
+        asset_dirs.append(config.assets_dir)
+    library_asset_dirs = config.find_lib_asset_dirs() if hasattr(config, "find_lib_asset_dirs") else []
+    transitive_assets, direct_assets = _partition_library_dirs(config, library_asset_dirs)
+    asset_dirs.extend(direct_assets)
+    asset_dirs.extend(transitive_assets)
+    for asset_dir in asset_dirs:
+        args += ["-A", asset_dir]
 
-    for f in os.listdir(config.compiled_res_dir):
-        if f.endswith(".zip"):
-            args += ["-R", os.path.join(config.compiled_res_dir, f)]
+    for _, resource_archive in _aapt2_resource_jobs(config):
+        args += ["-R", resource_archive]
 
     extra_packages = _get_lib_packages(config)
     if extra_packages:
         args += ["--extra-packages", extra_packages]
 
     output_res = os.path.join(config.bin_dir, "gen.apk.res")
+    ensure_output_path(
+        getattr(config, "build_dir", config.bin_dir), output_res, "AAPT2 resource output"
+    )
     args += [
         "--java", config.gen_dir,
         "--manifest", config.manifest_path,
@@ -126,6 +202,9 @@ def _link_aapt2(config, android_jar, proto_format=False):
         split_dir = ensure_dir(os.path.join(config.bin_dir, "splits"))
         for density in _DENSITY_BUCKETS:
             split_path = os.path.join(split_dir, f"split-{density}.apk")
+            ensure_output_path(
+                getattr(config, "build_dir", config.bin_dir), split_path, "AAPT2 split output"
+            )
             args += ["--split", f"{split_path}:{_DENSITY_BUCKETS[density]}"]
             split_paths.append((density, split_path))
 
@@ -136,8 +215,16 @@ def _link_aapt2(config, android_jar, proto_format=False):
 def _link_aapt1(config, android_jar):
     """aapt v1 package — compile + link in one shot."""
     log.info("Linking resources (aapt v1)")
+    ensure_output_path(
+        getattr(config, "build_dir", config.bin_dir),
+        os.path.join(config.gen_dir, ".output-check"),
+        "AAPT generated source output",
+    )
     ensure_dir(config.gen_dir)
     output_res = os.path.join(config.bin_dir, "gen.apk.res")
+    ensure_output_path(
+        getattr(config, "build_dir", config.bin_dir), output_res, "AAPT resource output"
+    )
 
     args = [
         "aapt", "package",
@@ -149,13 +236,42 @@ def _link_aapt1(config, android_jar):
         "--version-code", str(config.version_code),
         "--version-name", config.version_name,
         "-M", config.manifest_path,
-        "-S", config.res_dir,
         "-I", android_jar,
         "-F", output_res,
     ]
 
+    app_res_dirs = config.find_res_dirs() if hasattr(config, "find_res_dirs") else [config.res_dir]
+    app_res_dirs = [path for path in app_res_dirs if os.path.isdir(path)]
+    # AAPT1 uses the first resource directory that matches; flavor and app
+    # resources therefore precede library resources.
+    resource_dirs = list(reversed(app_res_dirs))
+    library_res_dirs = config.find_lib_resource_dirs() if hasattr(config, "find_lib_resource_dirs") else []
+    transitive_res_dirs, direct_res_dirs = _partition_library_dirs(config, library_res_dirs)
+    resource_dirs.extend(direct_res_dirs)
+    resource_dirs.extend(transitive_res_dirs)
+    if not resource_dirs:
+        resource_dirs.append(config.res_dir)
+    if len(resource_dirs) > 1:
+        args.append("--auto-add-overlay")
+    for resource_dir in resource_dirs:
+        args += ["-S", resource_dir]
+
+    asset_dirs = []
+    flavor_assets_dir = getattr(config, "flavor_assets_dir", None)
+    if flavor_assets_dir and os.path.isdir(flavor_assets_dir):
+        asset_dirs.append(flavor_assets_dir)
     if os.path.isdir(config.assets_dir):
-        args += ["-A", config.assets_dir]
+        asset_dirs.append(config.assets_dir)
+    library_asset_dirs = config.find_lib_asset_dirs() if hasattr(config, "find_lib_asset_dirs") else []
+    transitive_asset_dirs, direct_asset_dirs = _partition_library_dirs(config, library_asset_dirs)
+    asset_dirs.extend(direct_asset_dirs)
+    asset_dirs.extend(transitive_asset_dirs)
+    for asset_dir in asset_dirs:
+        args += ["-A", asset_dir]
+
+    extra_packages = _get_lib_packages(config)
+    if extra_packages:
+        args += ["--extra-packages", extra_packages]
 
     run(args)
 
@@ -164,11 +280,20 @@ def _get_lib_packages(config):
     packages = set()
     if not os.path.isdir(config.libs_dir):
         return ""
-    for root, _, files in os.walk(config.libs_dir):
-        for f in files:
-            if f != "AndroidManifest.xml":
-                continue
-            pkg = ET.parse(os.path.join(root, f)).getroot().attrib.get("package")
-            if pkg:
-                packages.add(pkg)
+    if hasattr(config, "_library_dirs"):
+        library_dirs = sorted(config._library_dirs())
+    else:
+        library_dirs = []
+        for root, _, files in os.walk(config.libs_dir):
+            if "AndroidManifest.xml" in files:
+                library_dirs.append(root)
+    for library_dir in library_dirs:
+        manifest_path = os.path.join(library_dir, "AndroidManifest.xml")
+        if os.path.islink(manifest_path):
+            raise ValueError(f"Library manifest must not be a symlink: {manifest_path}")
+        if not os.path.isfile(manifest_path):
+            continue
+        pkg = ET.parse(manifest_path).getroot().attrib.get("package")
+        if pkg:
+            packages.add(pkg)
     return ":".join(sorted(packages))

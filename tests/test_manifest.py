@@ -365,10 +365,21 @@ class ManifestMergeTests(unittest.TestCase):
             f'<manifest xmlns:android="{ANDROID}" package="com.example.app">'
             '<application><activity android:name=".MainActivity" /></application></manifest>',
         )
-        z_manifest = os.path.join(self.libs_dir, "z-library-1.0", "AndroidManifest.xml")
-        a_manifest = os.path.join(self.libs_dir, "a-library-1.0", "AndroidManifest.xml")
+        z_dir = os.path.join(
+            self.libs_dir, ".termux-builder", "maven", "com", "z", "z-library-1.0"
+        )
+        a_dir = os.path.join(
+            self.libs_dir, ".termux-builder", "maven", "com", "a", "a-library-1.0"
+        )
+        z_manifest = os.path.join(z_dir, "AndroidManifest.xml")
+        a_manifest = os.path.join(a_dir, "AndroidManifest.xml")
         os.makedirs(os.path.dirname(z_manifest))
         os.makedirs(os.path.dirname(a_manifest))
+        self.config.resolved_dependency_dirs = {z_dir, a_dir}
+        with open(os.path.join(z_dir, ".termux-builder-coordinate"), "w") as marker:
+            marker.write("com.z:z-library:1.0")
+        with open(os.path.join(a_dir, ".termux-builder-coordinate"), "w") as marker:
+            marker.write("com.a:a-library:1.0")
         self.write_manifest(
             z_manifest,
             f'<manifest xmlns:android="{ANDROID}" package="com.z">'
@@ -387,6 +398,96 @@ class ManifestMergeTests(unittest.TestCase):
 
         message = str(raised.exception)
         self.assertLess(message.index(z_manifest), message.index(a_manifest))
+
+    def test_stale_maven_manifest_is_excluded_when_no_dependencies_are_resolved(self):
+        self.config.dependencies = []
+        self.config.resolved_dependency_dirs = set()
+        self.write_manifest(
+            self.main_path,
+            f'<manifest xmlns:android="{ANDROID}" package="com.example.app"><application/></manifest>',
+        )
+        stale_dir = os.path.join(
+            self.libs_dir, ".termux-builder", "maven", "com", "example", "stale-1.0-aar"
+        )
+        os.makedirs(stale_dir)
+        with open(os.path.join(stale_dir, ".termux-builder-coordinate"), "w") as marker:
+            marker.write("com.example:stale:1.0")
+        stale_manifest = os.path.join(stale_dir, "AndroidManifest.xml")
+        self.write_manifest(
+            stale_manifest,
+            f'<manifest xmlns:android="{ANDROID}" package="com.example.stale">'
+            '<uses-permission android:name="android.permission.CAMERA" /></manifest>',
+        )
+
+        merge(self.config)
+
+        root = ET.parse(self.config.manifest_path).getroot()
+        self.assertIsNone(root.find("uses-permission"))
+
+    def test_unmarked_interrupted_maven_extraction_is_not_merged(self):
+        self.config.dependencies = []
+        self.config.resolved_dependency_dirs = set()
+        self.write_manifest(
+            self.main_path,
+            f'<manifest xmlns:android="{ANDROID}" package="com.example.app"><application/></manifest>',
+        )
+        staging_dir = os.path.join(
+            self.libs_dir, ".termux-builder", "maven", "com", "example", ".partial.stage"
+        )
+        os.makedirs(staging_dir)
+        self.write_manifest(
+            os.path.join(staging_dir, "AndroidManifest.xml"),
+            f'<manifest xmlns:android="{ANDROID}" package="com.example.partial">'
+            '<uses-permission android:name="android.permission.CAMERA" /></manifest>',
+        )
+
+        merge(self.config)
+
+        root = ET.parse(self.config.manifest_path).getroot()
+        self.assertIsNone(root.find("uses-permission"))
+
+    def test_merge_keeps_resolved_maven_and_local_manifests_only(self):
+        self.config.dependencies = ["com.example:active:1.0"]
+        active_dir = os.path.join(
+            self.libs_dir, ".termux-builder", "maven", "com", "example", "active-1.0-aar"
+        )
+        stale_dir = os.path.join(
+            self.libs_dir, ".termux-builder", "maven", "com", "example", "stale-1.0-aar"
+        )
+        local_dir = os.path.join(self.libs_dir, "local")
+        for directory in (active_dir, stale_dir, local_dir):
+            os.makedirs(directory)
+        for directory, coordinate in (
+            (active_dir, "com.example:active:1.0"),
+            (stale_dir, "com.example:stale:1.0"),
+        ):
+            with open(os.path.join(directory, ".termux-builder-coordinate"), "w") as marker:
+                marker.write(coordinate)
+        self.config.resolved_dependency_dirs = {active_dir}
+        self.write_manifest(
+            self.main_path,
+            f'<manifest xmlns:android="{ANDROID}" package="com.example.app"><application/></manifest>',
+        )
+        for directory, permission in (
+            (active_dir, "android.permission.CAMERA"),
+            (stale_dir, "android.permission.ACCESS_FINE_LOCATION"),
+            (local_dir, "android.permission.INTERNET"),
+        ):
+            self.write_manifest(
+                os.path.join(directory, "AndroidManifest.xml"),
+                f'<manifest xmlns:android="{ANDROID}" package="com.example.library">'
+                f'<uses-permission android:name="{permission}" /></manifest>',
+            )
+
+        merge(self.config)
+
+        permissions = {
+            element.attrib[f"{{{ANDROID}}}name"]
+            for element in ET.parse(self.config.manifest_path).getroot().findall("uses-permission")
+        }
+        self.assertEqual(permissions, {
+            "android.permission.CAMERA", "android.permission.INTERNET"
+        })
 
     def test_relative_component_names_use_each_manifest_package_for_matching(self):
         self.write_manifest(
@@ -407,6 +508,7 @@ class ManifestMergeTests(unittest.TestCase):
         self.assertEqual(len(activities), 2)
         self.assertNotIn(f"{{{ANDROID}}}label", activities[0].attrib)
         self.assertEqual(activities[1].attrib[f"{{{ANDROID}}}label"], "Library")
+        self.assertEqual(activities[1].attrib[f"{{{ANDROID}}}name"], "com.example.lib.MainActivity")
 
     def test_application_class_name_merges_as_package_relative_name(self):
         self.write_manifest(
@@ -423,7 +525,7 @@ class ManifestMergeTests(unittest.TestCase):
         merge(self.config)
 
         application = ET.parse(self.config.manifest_path).getroot().find("application")
-        self.assertEqual(application.attrib[f"{{{ANDROID}}}name"], ".App")
+        self.assertEqual(application.attrib[f"{{{ANDROID}}}name"], "com.example.app.App")
 
     def test_placeholders_expand_before_manifest_matching(self):
         self.config.manifest_placeholders = {"channel": "stable"}

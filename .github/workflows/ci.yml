@@ -62,6 +62,18 @@ jobs:
           cd "$RUNNER_TEMP"
           termux-builder init termux-builder-e2e --package com.example.e2e
           project="$RUNNER_TEMP/termux-builder-e2e"
+          python3 - "$project/project.yml" <<'PY'
+          import sys
+          import yaml
+
+          project_path = sys.argv[1]
+          with open(project_path, encoding="utf-8") as project_file:
+              config = yaml.safe_load(project_file)
+          config["android"]["min-sdk"] = 30
+          config["dependencies"] = ["androidx.lifecycle:lifecycle-runtime:2.6.1"]
+          with open(project_path, "w", encoding="utf-8") as project_file:
+              yaml.safe_dump(config, project_file, sort_keys=False)
+          PY
           termux-builder build "$project"
           termux-builder build "$project" --aab
           apk="$project/.build/termux-builder-e2e-debug.apk"
@@ -69,7 +81,8 @@ jobs:
           apks="$RUNNER_TEMP/termux-builder-e2e.apks"
           universal_apk="$RUNNER_TEMP/termux-builder-e2e-universal.apk"
           bundletool="$project/.cache/bundletool/bundletool-all-1.18.3.jar"
-          apksigner verify --verbose "$apk"
+          test -s "$apk.idsig"
+          apksigner verify --verbose -v4-signature-file "$apk.idsig" "$apk"
           umask 077
           password_file="$(mktemp)"
           printf '%s\n' android > "$password_file"
@@ -84,18 +97,26 @@ jobs:
 
           apk_path, aab_path, apks_path, universal_apk_path = sys.argv[1:]
           with zipfile.ZipFile(apk_path) as apk:
-              if "classes.dex" not in apk.namelist():
-                  raise SystemExit("APK is missing classes.dex")
+              apk_dex = [name for name in apk.namelist() if name.endswith(".dex")]
+              if "classes.dex" not in apk_dex or len(apk_dex) < 2:
+                  raise SystemExit("APK is missing application or resolved library DEX")
           with zipfile.ZipFile(aab_path) as aab:
+              aab_names = set(aab.namelist())
               required = {
                   "BundleConfig.pb",
                   "base/manifest/AndroidManifest.xml",
                   "base/resources.pb",
                   "base/dex/classes.dex",
               }
-              missing = sorted(required - set(aab.namelist()))
+              missing = sorted(required - aab_names)
               if missing:
                   raise SystemExit("AAB is missing: " + ", ".join(missing))
+              aab_dex = [
+                  name for name in aab_names
+                  if name.startswith("base/dex/classes") and name.endswith(".dex")
+              ]
+              if len(aab_dex) < 2:
+                  raise SystemExit("AAB is missing resolved library DEX")
           with zipfile.ZipFile(apks_path) as apks:
               if "universal.apk" not in apks.namelist():
                   raise SystemExit("bundletool APK set is missing universal.apk")

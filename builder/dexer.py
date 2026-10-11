@@ -1,5 +1,8 @@
+import hashlib
+import json
 import os
 import shutil
+import tempfile
 from builder.utils import run, ensure_dir, find_files, log
 
 
@@ -127,9 +130,47 @@ def _run_dx(config, class_files):
     ])
 
 
+def _remove_stale_library_dex_staging(cache_root):
+    try:
+        entries = list(os.scandir(cache_root))
+    except FileNotFoundError:
+        return
+    for entry in entries:
+        prefix = ".library-dex-"
+        if not entry.name.startswith(prefix) or entry.is_symlink():
+            continue
+        pid_text, separator, _ = entry.name[len(prefix):].partition("-")
+        if not separator or not pid_text.isdigit() or int(pid_text) == os.getpid():
+            continue
+        try:
+            os.kill(int(pid_text), 0)
+        except ProcessLookupError:
+            if entry.is_dir(follow_symlinks=False):
+                shutil.rmtree(entry.path)
+            else:
+                os.unlink(entry.path)
+        except PermissionError:
+            continue
+
+
 def _dex_libraries(config, use_d8):
-    lib_jars = config.find_lib_jars()
+    lib_jars = sorted(config.find_lib_jars())
     if not lib_jars:
+        config.library_dex_dir = None
+        return
+
+    cache_root = os.path.join(config.cache_dir, "library-dex")
+    if os.path.islink(config.cache_dir) or os.path.islink(cache_root):
+        raise RuntimeError(f"Library DEX cache directory must not be a symlink: {cache_root}")
+    ensure_dir(cache_root)
+    _remove_stale_library_dex_staging(cache_root)
+
+    fingerprint = _library_dex_fingerprint(config, lib_jars, use_d8)
+    cache_dir = os.path.join(cache_root, fingerprint)
+    if os.path.islink(cache_dir):
+        raise RuntimeError(f"Library DEX cache entry must not be a symlink: {cache_dir}")
+    if _valid_library_dex_cache(cache_dir, fingerprint):
+        config.library_dex_dir = cache_dir
         return
 
     # build --classpath args for d8 (other libs as classpath context)
@@ -137,29 +178,173 @@ def _dex_libraries(config, use_d8):
     for j in lib_jars:
         classpath_args += ["--classpath", j]
 
-    for jar in lib_jars:
-        lib_dir = os.path.dirname(jar)
-        if find_files(lib_dir, ".dex"):
-            continue
+    staging_dir = tempfile.mkdtemp(prefix=f".library-dex-{os.getpid()}-", dir=cache_root)
+    try:
+        for index, jar in enumerate(lib_jars):
+            output_dir = os.path.join(staging_dir, f"lib-{index:04d}")
+            ensure_dir(output_dir)
+            log.info("Dexing library: %s", os.path.basename(jar))
+            if use_d8:
+                run([
+                    config.bin_d8,
+                    f"--{config.build_type}",
+                    "--min-api", str(config.min_sdk),
+                    "--lib", config.android_jar,
+                    "--output", output_dir,
+                    *classpath_args,
+                    jar,
+                ])
+            else:
+                run([
+                    "dx", "--dex",
+                    f"--output={os.path.join(output_dir, 'classes.dex')}",
+                    f"--min-sdk-version={config.min_sdk}",
+                    jar,
+                ])
 
-        log.info("Dexing library: %s", os.path.basename(jar))
-        if use_d8:
-            run([
-                config.bin_d8,
-                f"--{config.build_type}",
-                "--min-api", str(config.min_sdk),
-                "--lib", config.android_jar,
-                "--output", lib_dir,
-                *classpath_args,
-                jar,
-            ])
-        else:
-            run([
-                "dx", "--dex",
-                f"--output={os.path.join(lib_dir, 'classes.dex')}",
-                f"--min-sdk-version={config.min_sdk}",
-                jar,
-            ])
+        dex_outputs = sorted(find_files(staging_dir, ".dex"))
+        manifest = {
+            "schema_version": 1,
+            "fingerprint": fingerprint,
+            "outputs": [
+                {
+                    "path": os.path.relpath(path, staging_dir).replace(os.sep, "/"),
+                    "sha256": _sha256_file(path),
+                }
+                for path in dex_outputs
+            ],
+        }
+        manifest_path = os.path.join(staging_dir, ".termux-builder-dex.json")
+        with open(manifest_path, "w") as output:
+            json.dump(manifest, output, sort_keys=True, separators=(",", ":"))
+
+        if _valid_library_dex_cache(cache_dir, fingerprint):
+            config.library_dex_dir = cache_dir
+            return
+        if os.path.lexists(cache_dir):
+            if os.path.islink(cache_dir):
+                raise RuntimeError(f"Library DEX cache entry must not be a symlink: {cache_dir}")
+            if os.path.isdir(cache_dir):
+                shutil.rmtree(cache_dir)
+            else:
+                os.remove(cache_dir)
+        os.replace(staging_dir, cache_dir)
+        staging_dir = None
+    finally:
+        if staging_dir is not None:
+            shutil.rmtree(staging_dir, ignore_errors=True)
+
+    config.library_dex_dir = cache_dir
+
+
+def _library_dex_fingerprint(config, lib_jars, use_d8):
+    tool = config.bin_d8 if use_d8 else "dx"
+    resolved_tool = shutil.which(tool) or tool
+    tool_files = [resolved_tool]
+    tool_name = os.path.basename(resolved_tool)
+    sidecar = "d8.jar" if tool_name == "d8" else "dx.jar" if tool_name == "dx" else None
+    if sidecar:
+        tool_files.append(os.path.join(os.path.dirname(resolved_tool), "lib", sidecar))
+    tool_identity = {"path": os.path.realpath(resolved_tool), "files": []}
+    for path in tool_files:
+        if os.path.isfile(path):
+            tool_identity["files"].append({
+                "path": os.path.realpath(path),
+                "sha256": _sha256_file(path),
+            })
+
+    inputs = []
+    for jar in lib_jars:
+        try:
+            relative_path = os.path.relpath(jar, config.libs_dir)
+        except ValueError:
+            relative_path = os.path.abspath(jar)
+        inputs.append({"path": relative_path.replace(os.sep, "/"), "sha256": _sha256_file(jar)})
+
+    fingerprint_data = {
+        "schema_version": 1,
+        "tool": tool_identity,
+        "use_d8": use_d8,
+        "build_type": config.build_type,
+        "min_sdk": config.min_sdk,
+        "android_jar_sha256": _sha256_file(config.android_jar),
+        "libraries": inputs,
+    }
+    encoded = json.dumps(fingerprint_data, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _sha256_file(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as source:
+        for chunk in iter(lambda: source.read(8192), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _valid_library_dex_cache(cache_dir, fingerprint):
+    if os.path.islink(cache_dir) or not os.path.isdir(cache_dir):
+        return False
+
+    actual = set()
+    for current, directories, files in os.walk(cache_dir, followlinks=False):
+        if any(os.path.islink(os.path.join(current, name)) for name in directories):
+            return False
+        for name in files:
+            path = os.path.join(current, name)
+            if os.path.islink(path):
+                return False
+            if name.endswith(".dex"):
+                if not os.path.isfile(path):
+                    return False
+                actual.add(os.path.relpath(path, cache_dir).replace(os.sep, "/"))
+
+    manifest_path = os.path.join(cache_dir, ".termux-builder-dex.json")
+    if os.path.islink(manifest_path) or not os.path.isfile(manifest_path):
+        return False
+    try:
+        with open(manifest_path) as source:
+            manifest = json.load(source)
+    except (OSError, json.JSONDecodeError):
+        return False
+    if (
+        not isinstance(manifest, dict)
+        or manifest.get("schema_version") != 1
+        or manifest.get("fingerprint") != fingerprint
+        or not isinstance(manifest.get("outputs"), list)
+    ):
+        return False
+
+    expected = {}
+    for item in manifest["outputs"]:
+        if not isinstance(item, dict):
+            return False
+        relative = item.get("path")
+        digest = item.get("sha256")
+        if (
+            not isinstance(relative, str)
+            or not relative.endswith(".dex")
+            or os.path.isabs(relative)
+            or "\\" in relative
+            or any(part in ("", ".", "..") for part in relative.split("/"))
+            or not isinstance(digest, str)
+            or len(digest) != 64
+            or any(char not in "0123456789abcdef" for char in digest)
+            or relative in expected
+        ):
+            return False
+        output_path = os.path.join(cache_dir, *relative.split("/"))
+        if os.path.islink(output_path) or not os.path.isfile(output_path):
+            return False
+        try:
+            if _sha256_file(output_path) != digest:
+                return False
+        except OSError:
+            return False
+        expected[relative] = None
+    return actual == set(expected)
+
+
 
 
 def _dex_desugar_lib(config, desugar_json, desugar_jar):
