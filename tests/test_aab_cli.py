@@ -3,11 +3,13 @@ import os
 import secrets
 import shutil
 import stat
+import struct
 import subprocess
 import sys
 import tempfile
 import unittest
 import zipfile
+import zlib
 from contextlib import ExitStack
 from types import SimpleNamespace
 from pathlib import Path
@@ -320,12 +322,13 @@ class AabBuildCommandTests(unittest.TestCase):
 
         with patch("builder.aab.run") as run:
             run.return_value.stdout = "jar verified."
+            run.return_value.returncode = 0
             _verify_aab(aab_path, ["bundletool"])
             self.assertEqual(
-                run.call_args_list[0].args[0],
+                run.call_args_list[1].args[0],
                 ["bundletool", "validate", "--bundle", aab_path],
             )
-            self.assertIn("-verify", run.call_args_list[1].args[0])
+            self.assertIn("-verify", run.call_args_list[2].args[0])
 
             run.return_value.stdout = "jar is unsigned."
             with self.assertRaisesRegex(RuntimeError, "signature verification failed"):
@@ -335,6 +338,44 @@ class AabBuildCommandTests(unittest.TestCase):
             bundle.writestr("BundleConfig.pb", "valid")
         with self.assertRaisesRegex(RuntimeError, "missing required entries"):
             _verify_aab(aab_path, ["bundletool"])
+
+    def test_aab_verification_checks_strict_warning_exit_bits(self):
+        from builder.aab import _verify_aab
+        aab_path = os.path.join(self.tempdir.name, 'strict.aab')
+        with zipfile.ZipFile(aab_path, 'w') as archive:
+            for name in ('BundleConfig.pb', 'base/manifest/AndroidManifest.xml', 'base/resources.pb'):
+                archive.writestr(name, b'fixture')
+        for code in (0, 4):
+            with self.subTest(code=code), patch('builder.aab.run', side_effect=[
+                SimpleNamespace(returncode=0),
+                SimpleNamespace(returncode=code, stdout='jar verified, with signer errors.'),
+            ]) as execute:
+                _verify_aab(aab_path)
+                self.assertIn('-strict', execute.call_args_list[1].args[0])
+                self.assertFalse(execute.call_args_list[1].kwargs['check'])
+        for code in (1, 8, 12, 16, 20, 24, 32, 36, 64, 68, 128):
+            with self.subTest(code=code), patch('builder.aab.run', side_effect=[
+                SimpleNamespace(returncode=0),
+                SimpleNamespace(returncode=code, stdout='jar verified, with signer errors.'),
+            ]) as execute:
+                with self.assertRaisesRegex(RuntimeError, 'signature verification failed'):
+                    _verify_aab(aab_path)
+                self.assertEqual(execute.call_count, 2)
+
+    def test_signature_coverage_failure_redacts_child_diagnostics(self):
+        from builder.aab import _verify_aab
+        aab_path = os.path.join(self.tempdir.name, 'coverage.aab')
+        with zipfile.ZipFile(aab_path, 'w') as archive:
+            for name in ('BundleConfig.pb', 'base/manifest/AndroidManifest.xml', 'base/resources.pb'):
+                archive.writestr(name, b'fixture')
+        secret = secrets.token_hex(16)
+        for code in (1, 2, 3, 4, 5):
+            with self.subTest(code=code), patch('builder.aab.run',
+                return_value=SimpleNamespace(returncode=code, stderr='Picked up JAVA_TOOL_OPTIONS: password=' + secret)):
+                with self.assertRaisesRegex(RuntimeError, 'signature coverage verification failed') as error:
+                    _verify_aab(aab_path)
+            self.assertNotIn(secret, str(error.exception))
+            self.assertNotIn('JAVA_TOOL_OPTIONS', str(error.exception))
 
     def test_bundle_build_verifies_the_signed_output(self):
         from builder.aab import build_bundle
@@ -744,10 +785,216 @@ class AabBuildCommandTests(unittest.TestCase):
             self.assertTrue(all(info.date_time == (1980, 1, 1, 0, 0, 0) for info in archive.infolist()))
 
 
+@unittest.skipUnless(all(shutil.which(tool) for tool in ('java', 'keytool', 'jarsigner', 'javac')), 'Real JDK signing tools required')
+class AabSignatureCoverageTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        from builder.aab import _sign_aab
+        cls.tempdir = tempfile.TemporaryDirectory(prefix='termux-builder-signature-coverage-')
+        cls.addClassCleanup(cls.tempdir.cleanup)
+        cls.root = Path(cls.tempdir.name)
+        cls.signed = cls.root / 'signed.aab'
+        password = secrets.token_hex(16)
+        environment = dict(os.environ, TB_FIXTURE_PASSWORD=password)
+        keystore = cls.root / 'fixture.p12'
+        subprocess.run(['keytool', '-genkeypair', '-noprompt', '-keystore', str(keystore),
+            '-storepass:env', 'TB_FIXTURE_PASSWORD', '-alias', 'fixture', '-dname', 'CN=Signing Coverage',
+            '-keyalg', 'RSA', '-keysize', '2048', '-validity', '2'],
+            env=environment, check=True, capture_output=True)
+        with zipfile.ZipFile(cls.signed, 'w') as archive:
+            for name in ('BundleConfig.pb', 'base/manifest/AndroidManifest.xml', 'base/resources.pb',
+                         'base/assets/signed-payload.txt', 'META-INF/signed-payload.txt'):
+                archive.writestr(name, b'signed fixture payload')
+            archive.writestr('base/assets/', b'')
+        cls.config = SimpleNamespace(keystore_path=str(keystore), keystore_alias='fixture',
+            keystore_store_pass=password, keystore_key_pass=password)
+        _sign_aab(cls.config, str(cls.signed))
+
+    def test_embedded_signature_file_cannot_authenticate_changed_external_sf(self):
+        from builder.aab import _verify_aab
+        internal = self.root / 'embedded-sf.aab'
+        shutil.copyfile(self.signed, internal)
+        subprocess.run(['jarsigner', '-internalsf', '-keystore', self.config.keystore_path,
+            '-storepass:env', 'TB_FIXTURE_PASSWORD', '-digestalg', 'SHA-256', str(internal), 'fixture'],
+            env=dict(os.environ, TB_FIXTURE_PASSWORD=self.config.keystore_store_pass),
+            check=True, capture_output=True)
+        altered = self.root / 'changed-external-sf.aab'
+        with zipfile.ZipFile(internal) as source, zipfile.ZipFile(altered, 'w') as archive:
+            for member in source.infolist():
+                data = source.read(member)
+                if member.filename == 'META-INF/FIXTURE.SF':
+                    data += b'Name: unused\r\nUnsigned-Payload: tampered\r\n\r\n'
+                archive.writestr(member, data)
+        with self.assertRaisesRegex(RuntimeError, 'embedded signature files are unsupported'):
+            _verify_aab(str(altered))
+
+    def hide_entry_contents(self, path, name, declared_size=0):
+        with zipfile.ZipFile(path) as archive:
+            member = archive.getinfo(name)
+            local = member.header_offset
+            central = archive.start_dir
+            with archive.open(member) as content:
+                checksum = zlib.crc32(content.read(declared_size))
+        data = bytearray(path.read_bytes())
+        while data[central:central + 4] == b'PK\x01\x02':
+            name_size, extra_size, comment_size = struct.unpack_from('<HHH', data, central + 28)
+            if data[central + 46:central + 46 + name_size] == name.encode():
+                break
+            central += 46 + name_size + extra_size + comment_size
+        self.assertEqual(data[central + 46:central + 46 + name_size], name.encode())
+        struct.pack_into('<I', data, local + 14, checksum)
+        struct.pack_into('<I', data, local + 22, declared_size)
+        struct.pack_into('<I', data, central + 16, checksum)
+        struct.pack_into('<I', data, central + 24, declared_size)
+        path.write_bytes(data)
+
+    def test_directory_payload_hidden_by_zero_size_and_crc_is_rejected(self):
+        from builder.aab import _verify_aab, run as actual_run
+        for name in ('base/assets/hidden/', 'META-INF/hidden/'):
+            with self.subTest(name=name):
+                altered = self.root / 'hidden-directory-payload.aab'
+                shutil.copyfile(self.signed, altered)
+                with zipfile.ZipFile(altered, 'a', compression=zipfile.ZIP_DEFLATED) as archive:
+                    archive.writestr(name, b'unsigned directory payload')
+                self.hide_entry_contents(altered, name)
+                with zipfile.ZipFile(altered) as archive:
+                    self.assertEqual(archive.getinfo(name).file_size, 0)
+                    self.assertEqual(archive.getinfo(name).CRC, 0)
+                    self.assertIsNone(archive.testzip())
+                with patch('builder.aab.run', wraps=actual_run) as execute:
+                    with self.assertRaisesRegex(RuntimeError, 'directory entries must be empty'):
+                        _verify_aab(str(altered))
+                    self.assertEqual(execute.call_count, 1)
+                    self.assertIn('--source', execute.call_args.args[0])
+
+    def test_self_signed_bundle_with_signed_meta_inf_payload_is_accepted(self):
+        from builder.aab import _verify_aab
+        _verify_aab(str(self.signed))
+
+    def test_appended_unsigned_payload_is_rejected(self):
+        from builder.aab import _verify_aab
+        for name in ('base/assets/unsigned.txt', 'META-INF/unsigned.txt',
+                     'base/assets/unsigned/', 'META-INF/unsigned/'):
+            with self.subTest(name=name):
+                altered = self.root / 'unsigned.aab'
+                shutil.copyfile(self.signed, altered)
+                with zipfile.ZipFile(altered, 'a') as archive:
+                    archive.writestr(name, b'unsigned fixture payload')
+                with self.assertRaisesRegex(RuntimeError, 'signature.*(verification|coverage).*failed'):
+                    _verify_aab(str(altered))
+
+    def test_changed_signed_entries_are_rejected_after_crc_is_recomputed(self):
+        from builder.aab import _verify_aab
+        for name in ('base/resources.pb', 'META-INF/signed-payload.txt', 'META-INF/MANIFEST.MF',
+                     'META-INF/FIXTURE.SF', 'META-INF/FIXTURE.RSA'):
+            with self.subTest(name=name):
+                altered = self.root / 'changed.aab'
+                with zipfile.ZipFile(self.signed) as source, zipfile.ZipFile(altered, 'w') as archive:
+                    for member in source.infolist():
+                        archive.writestr(member, b'changed fixture payload' if member.filename == name
+                                         else source.read(member))
+                with self.assertRaisesRegex(RuntimeError, 'signature.*(verification|coverage).*failed'):
+                    _verify_aab(str(altered))
+
+    def test_appended_signature_metadata_payload_is_rejected(self):
+        from builder.aab import _verify_aab
+        for names in (('META-INF/UNSIGNED.SF',), ('META-INF/UNSIGNED.RSA',),
+                      ('META-INF/UNSIGNED.DSA',), ('META-INF/UNSIGNED.EC',),
+                      ('META-INF/SIG-UNSIGNED',), ('META-INF/manifest.mf',),
+                      ('META-INF/UNSIGNED.SF', 'META-INF/UNSIGNED.RSA')):
+            with self.subTest(names=names):
+                altered = self.root / 'unsigned-metadata.aab'
+                shutil.copyfile(self.signed, altered)
+                with zipfile.ZipFile(altered, 'a') as archive:
+                    for name in names:
+                        archive.writestr(name, b'unsigned fixture payload')
+                with self.assertRaisesRegex(RuntimeError, 'signature.*(verification|coverage).*failed'):
+                    _verify_aab(str(altered))
+
+    def test_unsigned_sections_appended_to_signed_manifest_are_rejected(self):
+        from builder.aab import _verify_aab
+        altered = self.root / 'manifest-unsigned-section.aab'
+        with zipfile.ZipFile(self.signed) as source, zipfile.ZipFile(altered, 'w') as archive:
+            for member in source.infolist():
+                data = source.read(member)
+                if member.filename == 'META-INF/MANIFEST.MF':
+                    data += b'Name: unsigned-metadata-payload\r\nX-Payload: malicious\r\n\r\n'
+                archive.writestr(member, data)
+        with self.assertRaisesRegex(RuntimeError, 'signature.*(verification|coverage).*failed'):
+            _verify_aab(str(altered))
+
+    def test_unsigned_bytes_appended_to_genuine_signature_block_are_rejected(self):
+        from builder.aab import _verify_aab
+        altered = self.root / 'block-unsigned-bytes.aab'
+        with zipfile.ZipFile(self.signed) as source, zipfile.ZipFile(altered, 'w') as archive:
+            for member in source.infolist():
+                data = source.read(member)
+                if member.filename == 'META-INF/FIXTURE.RSA':
+                    data += b'arbitrary unsigned payload'
+                archive.writestr(member, data)
+        with self.assertRaisesRegex(RuntimeError, 'signature.*(verification|coverage).*failed'):
+            _verify_aab(str(altered))
+
+    def test_removed_signed_payload_is_rejected(self):
+        from builder.aab import _verify_aab
+        for name in ('base/assets/signed-payload.txt', 'META-INF/signed-payload.txt'):
+            with self.subTest(name=name):
+                altered = self.root / 'removed-payload.aab'
+                with zipfile.ZipFile(self.signed) as source, zipfile.ZipFile(altered, 'w') as archive:
+                    for member in source.infolist():
+                        if member.filename != name:
+                            archive.writestr(member, source.read(member))
+                with self.assertRaisesRegex(RuntimeError, 'signature.*(verification|coverage).*failed'):
+                    _verify_aab(str(altered))
+
+    def test_oversized_signature_metadata_is_rejected_with_size_diagnostic(self):
+        from builder.aab import _verify_aab
+        altered = self.root / 'oversized-metadata.aab'
+        with zipfile.ZipFile(self.signed) as source, zipfile.ZipFile(altered, 'w') as archive:
+            for member in source.infolist():
+                data = source.read(member)
+                if member.filename == 'META-INF/FIXTURE.RSA':
+                    data += b'x' * (16 * 1024 * 1024)
+                archive.writestr(member, data)
+        with self.assertRaisesRegex(RuntimeError, 'signature metadata exceeds 16 MiB limit'):
+            _verify_aab(str(altered))
+
+    def test_actual_metadata_size_is_bounded_when_zip_declares_small_size(self):
+        from builder.aab import _verify_aab, run as actual_run
+        altered = self.root / 'hidden-metadata-size.aab'
+        shutil.copyfile(self.signed, altered)
+        with zipfile.ZipFile(altered, 'a', compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr('META-INF/PAYLOAD.RSA', b'x' * (16 * 1024 * 1024 + 1))
+        self.hide_entry_contents(altered, 'META-INF/PAYLOAD.RSA', declared_size=65536)
+        with zipfile.ZipFile(altered) as archive:
+            self.assertEqual(archive.getinfo('META-INF/PAYLOAD.RSA').file_size, 65536)
+            self.assertIsNone(archive.testzip())
+        with patch('builder.aab.run', wraps=actual_run) as execute:
+            with self.assertRaisesRegex(RuntimeError, 'signature metadata exceeds 16 MiB limit'):
+                _verify_aab(str(altered))
+            self.assertEqual(execute.call_count, 1)
+            self.assertIn('--source', execute.call_args.args[0])
+
+    def test_aggregate_signature_metadata_size_is_bounded_before_verification(self):
+        from builder.aab import _verify_aab, run as actual_run
+        altered = self.root / 'aggregate-metadata.aab'
+        shutil.copyfile(self.signed, altered)
+        with zipfile.ZipFile(altered, 'a', compression=zipfile.ZIP_DEFLATED) as archive:
+            for index in range(5):
+                with archive.open('META-INF/EXTRA' + str(index) + '.SF', 'w') as entry:
+                    for _ in range(13):
+                        entry.write(b'x' * (1024 * 1024))
+        with patch('builder.aab.run', wraps=actual_run) as execute:
+            with self.assertRaisesRegex(RuntimeError, 'total signature metadata exceeds 64 MiB limit'):
+                _verify_aab(str(altered))
+            self.assertEqual(execute.call_count, 1)
+            self.assertIn('--source', execute.call_args.args[0])
+
+
 class AabSigningKeyCompatibilityTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which('keytool') and shutil.which('jarsigner'), 'Real JDK signing tools required')
     def test_rsa_and_ec_keys_produce_verified_jar_signatures(self):
-        from builder.aab import _sign_aab
+        from builder.aab import _sign_aab, _verify_aab
         for algorithm in ('RSA', 'EC'):
             with self.subTest(algorithm=algorithm), tempfile.TemporaryDirectory() as temp:
                 root = Path(temp)
@@ -762,12 +1009,15 @@ class AabSigningKeyCompatibilityTests(unittest.TestCase):
                 artifact = root / 'fixture.aab'
                 with zipfile.ZipFile(artifact, 'w') as archive:
                     archive.writestr('payload.txt', b'unchanged payload')
+                    for name in ('BundleConfig.pb', 'base/manifest/AndroidManifest.xml', 'base/resources.pb'):
+                        archive.writestr(name, b'signed fixture payload')
                 config = SimpleNamespace(keystore_path=str(keystore), keystore_alias='fixture',
                     keystore_store_pass=password, keystore_key_pass=password)
                 _sign_aab(config, str(artifact))
                 verified = subprocess.run(['jarsigner', '-J-Duser.language=en', '-verify', str(artifact)],
                     check=True, capture_output=True, text=True)
                 self.assertIn('jar verified.', verified.stdout)
+                _verify_aab(str(artifact))
                 with zipfile.ZipFile(artifact) as archive:
                     self.assertEqual(archive.read('payload.txt'), b'unchanged payload')
                     self.assertIn('META-INF/FIXTURE.SF', archive.namelist())

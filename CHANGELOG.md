@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Corrige cobertura da assinatura AAB: testes reais reproduziram payload/metadados sem assinatura, dados anexados ao manifesto/bloco e remoção de entradas assinadas aceitos pela verificação anterior. Recusa SF embutido após reproduzir falso sucesso com SF externo adulterado. Usa jarsigner estrito e APIs públicas JDK para cobertura, pares SF/bloco autenticados, manifesto inteiro e presença dos arquivos; limita bytes reais de metadados a 16 MiB por entrada e 64 MiB no total antes de parsing verificado/bundletool/jarsigner. RSA/EC válidos e AAB AGP permanecem aceitos; stderr do JVM não é reproduzido. Confiança no certificado e assinatura somente por seções não são certificadas.
+
 - Verifica KAPT completo no Termux ARM64/Bionic, Android 16/API 36, Python 3.14.6/JDK 21.0.12, UID/contexto do aplicativo e CapEff=0. Geração acionada por Java, bytecode direto/Java/Kotlin/recursos, valor JVM 28, DEX, dois APKs/dois AABs assinados e rebuilds sem clean passaram. A repetição completa por ADB Wi-Fi terminou com código 0 após interrupção USB. JARs/android.jar locais; instalação, bootstrap, fallback K2 e outros processadores não verificados.
 
 - Torna a fixture KAPT portátil: wrapper com Python atual e --toolchain-cache para Kotlin/KAPT/bundletool locais, sem alterar padrões da CI. Regressão real no Termux reproduziu /usr/bin/env ausente; compilação e execução JVM passaram após a correção. Fluxo completo APK/AAB e rebuilds passaram no host JDK 21; isso não certifica o fluxo nativo completo.

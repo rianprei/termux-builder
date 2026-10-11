@@ -251,6 +251,11 @@ def _verify_aab(aab_path, bundletool_cmd=None):
             if len(names) != len(set(names)):
                 raise RuntimeError("AAB contains duplicate archive entries")
             for member in bundle.infolist():
+                name = member.filename.upper()
+                if (member.file_size > 16 * 1024 * 1024 and name.startswith("META-INF/")
+                        and "/" not in name[9:] and (name == "META-INF/MANIFEST.MF"
+                        or name.endswith((".SF", ".RSA", ".DSA", ".EC")) or name.startswith("META-INF/SIG-"))):
+                    raise RuntimeError("AAB signature coverage verification failed: signature metadata exceeds 16 MiB limit")
                 parts = member.filename.rstrip("/").split("/")
                 if (not parts or any(part in ("", ".", "..") for part in parts)
                         or "\\" in member.filename or stat.S_ISLNK(member.external_attr >> 16)):
@@ -269,16 +274,34 @@ def _verify_aab(aab_path, bundletool_cmd=None):
     if missing:
         raise RuntimeError(f"AAB is missing required entries: {', '.join(missing)}")
 
+    env = os.environ.copy()
+    env["LC_ALL"] = "C"
+    java = find_bin("java")
+    if not java:
+        raise RuntimeError("java not found — install: pkg install openjdk-17")
+    verifier = os.path.join(os.path.dirname(__file__), "AabSignatureVerifier.java")
+    with tempfile.TemporaryDirectory(prefix="termux-builder-signature-") as temporary:
+        result = run([java, "--source", "11", verifier, aab_path, temporary],
+                     capture=True, check=False, env=env)
+    if result.returncode == 2:
+        raise RuntimeError("AAB signature coverage verification failed: signature metadata exceeds 16 MiB limit")
+    if result.returncode == 3:
+        raise RuntimeError("AAB signature coverage verification failed: total signature metadata exceeds 64 MiB limit")
+    if result.returncode == 4:
+        raise RuntimeError("AAB signature coverage verification failed: embedded signature files are unsupported")
+    if result.returncode == 5:
+        raise RuntimeError("AAB signature coverage verification failed: directory entries must be empty")
+    if result.returncode != 0:
+        raise RuntimeError("AAB signature coverage verification failed: unsigned or invalid archive entries")
+
     if bundletool_cmd:
         run(bundletool_cmd + ["validate", "--bundle", aab_path], capture=True)
-
     jarsigner = find_bin("jarsigner")
     if not jarsigner:
         raise RuntimeError("jarsigner not found — install: pkg install openjdk-17")
-    env = os.environ.copy()
-    env["LC_ALL"] = "C"
-    result = run([jarsigner, "-verify", aab_path], capture=True, env=env)
-    if "jar verified" not in (result.stdout or "").lower():
+    result = run([jarsigner, "-verify", "-strict", aab_path], capture=True, check=False, env=env)
+    # Strict warning codes are ORed; bit 4 covers certificate trust/validity.
+    if result.returncode not in (0, 4) or "jar verified" not in (result.stdout or "").lower():
         raise RuntimeError("AAB signature verification failed: jarsigner did not verify the bundle")
     log.info("AAB structure and signature verified; certificate trust was not checked")
 

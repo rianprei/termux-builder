@@ -7,6 +7,7 @@ setup(
     author="rianprei",
     url="https://github.com/rianprei/termux-builder",
     packages=find_packages(),
+    package_data={"builder": ["AabSignatureVerifier.java"]},
     python_requires=">=3.9",
     install_requires=["pyyaml>=6.0", "requests>=2.28.0"],
     entry_points={
