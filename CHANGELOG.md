@@ -16,6 +16,7 @@
 - Valida com `apksigner` o APK e o `.idsig` de V4 antes de publicar o par assinado; se qualquer rename falhar, restaura o par anterior e preserva backups para recuperacao quando o rollback tambem falha.
 - Valida os diretorios AAPT2 e AAB antes de cria-los, qualifica nomes de classes relativos nos manifests pelo pacote de origem, e une arestas Maven com type implícito/explicito quando resolvem para o mesmo JAR ou AAR.
 - Ignora manifests e JARs de staging Maven incompleto, recupera diretorios de DEX temporarios de processos mortos e escreve entradas adicionadas ao APK com metadados ZIP estaveis.
+- Serializa a resolução Maven com a leitura e geração do cache DEX por um lock `flock` comum; fingerprint é calculado sob o lock e a validação pós-geração descarta resultados se as entradas mudarem. O lock rejeita symlinks e a regressão cobre concorrência, falhas, interrupção e retomada.
 - Identifica o PID no staging AAR e remove diretorios abandonados por processos mortos sem tocar extrações ainda ativas.
 - Inclui DEX de dependencias AAR tanto em APK quanto em AAB; o build real AndroidX gerou 15 entradas DEX em cada formato e passou nas verificacoes de assinatura/estrutura.
 - Expande regressao para caminhos inseguros, falhas de assinatura sem sobrescrever artefatos anteriores, caches incompletos, ZIPs reprodutiveis e integracao AndroidX na CI.

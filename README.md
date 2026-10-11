@@ -209,8 +209,8 @@ src/jniLibs/
 
 | Fluxo ou recurso | Estado | Escopo verificado / limite |
 |------------------|--------|----------------------------|
-| `project.yml` nativo, Java + AndroidX → APK assinado | VALIDATED | Build local em Linux x86_64 com plataforma Android API 34, Build Tools 37.0.0 e `androidx.lifecycle:lifecycle-runtime:2.6.1`; `apksigner verify` aprovado e 15 entradas DEX no APK. |
-| `project.yml` nativo, Java + AndroidX → AAB | VALIDATED | Build local de módulo base com 15 entradas DEX; `jarsigner` e `bundletool validate` aprovados. |
+| `project.yml` nativo, Java + AndroidX → APK assinado | VALIDATED | Build E2E em Linux x86_64, OpenJDK 25.0.4.1, Android API 36 e Build Tools 37.0.0 com `androidx.lifecycle:lifecycle-runtime:2.6.1`; manifesto e DEX presentes, `apksigner verify` aprovado; APK de 1.230.021 bytes. |
+| `project.yml` nativo, Java + AndroidX → AAB | VALIDATED | Mesmo projeto e toolchain, módulo `base`; manifesto e DEX presentes, `jarsigner -verify` aprovado e `bundletool build-apks --mode=universal` gerou APK universal assinado; AAB de 1.225.589 bytes. |
 | APK V4 com sidecar `.idsig` | VALIDATED | Scaffold local com `min-sdk: 30`; `apksigner verify -v4-signature-file` confirmou V4. |
 | `bundletool build-apks --mode=universal` | VALIDATED | Executado sobre o AAB AndroidX acima; o APK universal passou `apksigner verify`. |
 | Instalação e abertura no Android | VALIDATED | `termux-builder init <caminho-absoluto>` + `build --install` geraram e instalaram o APK pela CLI; `adb shell am start -W -n com.example.termuxbuildervalidation1011/.MainActivity` retornou `LaunchState: COLD` e `pidof` confirmou o processo em Android 16/API 36 `arm64-v8a`. O build foi feito no host Linux x86_64 e o pacote temporário foi removido. |
@@ -223,6 +223,18 @@ src/jniLibs/
 | Módulos de feature/dynamic delivery em AAB | NOT IMPLEMENTED | O AAB validado contém somente o módulo `base`. |
 
 `VALIDATED` descreve apenas as combinações e comandos listados acima. O teste em Linux não comprova execução nativa em Termux/Bionic; a assinatura de debug comprova integridade, não confiança ou identidade de publicação.
+
+## Benchmark do cache DEX de bibliotecas
+
+Comparação local entre `15e09c4` e `9ea1e8b`, em Linux x86_64, OpenJDK 25.0.4.1, Build Tools 37.0.0 e plataforma `android-36`. Foram executadas 9 amostras intercaladas por revisão. Cada amostra usa um JAR Java pequeno, chama `builder.dexer._dex_libraries(config, use_d8=True)` uma vez sem cache e uma vez com cache; o harness cronometra com `time.perf_counter`, compara o SHA-256 do DEX e lê o pico de memória dos processos filhos.
+
+| Medida | `15e09c4` | `9ea1e8b` |
+|--------|----------:|---------:|
+| Build DEX frio, mediana | 0,6197 s | 0,7001 s |
+| Rebuild DEX quente, mediana | 0,0888 s | 0,0885 s |
+| Pico de RSS dos processos filhos, mediana | 124.412 KiB | 123.792 KiB |
+
+O SHA-256 do DEX foi idêntico nas duas revisões. O caminho frio na revisão atual ficou 0,0804 s (13%) mais lento; esta medição não isolou qual etapa responde pela diferença. No caminho quente, a diferença observada foi inferior a 1%. O harness foi temporário e mediu apenas DEX de uma biblioteca pequena, não o tempo completo de um build Android.
 
 Para repetir o smoke test em um dispositivo ADB autorizado, configure `ANDROID_SDK` no host e `DEVICE_SERIAL` com o serial do dispositivo:
 
