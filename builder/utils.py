@@ -20,7 +20,7 @@ def project_lock(project_dir):
         try:
             fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            raise RuntimeError("A build, clean or dependency operation is already active for this project; retry after it finishes") from None
+            raise RuntimeError("A build, test, clean or dependency operation is already active for this project; retry after it finishes") from None
         except OSError as exc:
             raise RuntimeError(f"Cannot lock project directory on this filesystem: {project_dir}") from exc
         yield

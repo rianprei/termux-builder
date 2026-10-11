@@ -292,8 +292,9 @@ def _test(args):
     from builder.config import Config
     from builder import testing
     config = Config(args.project)
-    if not testing.run_tests(config, coverage=args.coverage, coverage_report=args.coverage_report):
-        sys.exit(1)
+    with project_lock(config.project_dir):
+        if not testing.run_tests(config, coverage=args.coverage, coverage_report=args.coverage_report):
+            sys.exit(1)
 
 
 def _lint(args):

@@ -1,5 +1,9 @@
 ## Unreleased
 
+- Inclui test no lock exclusivo da CLI; regressão reproduz a execução indevida durante outra operação, e a fixture Termux verifica recusa com código 1 sem alterar o APK.
+
+- Invalida test-classes antes de cada execução JUnit, incluindo remoção de todas as fontes, e recusa symlinks nesse destino. Fixture com JDK/JUnit reais reproduziu a execução de teste removido antes da correção; agora verifica falha de assertion, rebuild com um teste e remoção total. Integra a fixture à CI.
+
 - Serializa operações da CLI no mesmo projeto com flock no diretório: build APK/AAB, clean e deps recusam concorrência antes de alterar saídas, com código 1. Testes cobrem aliases symlink, processos independentes, SIGKILL, exceções e independência entre projetos; nenhum arquivo de lock persistente é criado.
 
 - Corrige assinatura AAB com chaves EC: remove SHA256withRSA fixo e usa a escolha do jarsigner adequada à chave, mantendo digest SHA-256. Regressão com keytool/jarsigner reais cobre RSA e EC; APK/AAB nativos e rebuild passaram com ambos.

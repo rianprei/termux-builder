@@ -1,4 +1,5 @@
 import os
+import shutil
 import requests
 from builder.utils import run, find_files, find_bin, log, ensure_dir
 
@@ -7,6 +8,11 @@ JACOCO_BASE = "https://repo1.maven.org/maven2/org/jacoco"
 
 
 def run_tests(config, coverage=False, coverage_report=None):
+    test_classes_dir = os.path.join(config.build_dir, "test-classes")
+    if os.path.lexists(test_classes_dir):
+        if os.path.islink(test_classes_dir) or not os.path.isdir(test_classes_dir):
+            raise RuntimeError("Test class output must be a directory, not a symlink or file")
+        shutil.rmtree(test_classes_dir)
     test_dirs = [
         os.path.join(config.project_dir, "src", "test"),
         os.path.join(config.project_dir, "src", "androidTest"),
@@ -31,7 +37,7 @@ def run_tests(config, coverage=False, coverage_report=None):
         log.warning("JUnit not found in libs — download junit-4.13.2 or add to dependencies")
         return False
 
-    test_classes_dir = ensure_dir(os.path.join(config.build_dir, "test-classes"))
+    ensure_dir(test_classes_dir)
 
     lib_jars = config.find_lib_jars()
     classpath = os.pathsep.join([

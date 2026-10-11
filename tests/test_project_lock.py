@@ -50,14 +50,16 @@ class ProjectConcurrencyTests(unittest.TestCase):
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
             try:
                 self.assertEqual(holder.stdout.readline().strip(), 'ready')
-                args = argparse.Namespace(project=str(alias), flavor=None, clean=True, install=False, aab=False)
-                with patch('builder.config.Config', return_value=config), patch('builder.deps.resolve') as resolve:
-                    for action in (cli._build, cli._clean, cli._deps):
+                args = argparse.Namespace(project=str(alias), flavor=None, clean=True, install=False, aab=False,
+                    coverage=False, coverage_report=None)
+                with patch('builder.config.Config', return_value=config), patch('builder.deps.resolve') as resolve, patch('builder.testing.run_tests') as tests:
+                    for action in (cli._build, cli._clean, cli._deps, cli._test):
                         with self.subTest(action=action.__name__):
                             with self.assertRaisesRegex(RuntimeError, 'already active'):
                                 action(args)
                             self.assertEqual(marker.read_text(), 'active build')
                             resolve.assert_not_called()
+                            tests.assert_not_called()
                     args.aab = True
                     with self.assertRaisesRegex(RuntimeError, 'already active'):
                         cli._build(args)
