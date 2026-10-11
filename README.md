@@ -137,6 +137,7 @@ Esse caminho nativo ainda nao implementa todas as regras do Manifest Merger do A
 
 ```
 myapp/
+├── .gitignore               # Saidas de build, chaves locais e arquivos de ambiente
 ├── project.yml              # Configuracao do build
 ├── AndroidManifest.xml
 ├── debug.keystore           # Gerado automaticamente

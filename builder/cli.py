@@ -360,6 +360,24 @@ android:
   keystore-key-pass: android
 """)
 
+    with open(os.path.join(project_dir, ".gitignore"), "w") as f:
+        f.write("""# Generated build output
+.build/
+.libs/
+.cache/
+
+# Local signing credentials and environment files
+*.keystore
+*.jks
+*.p12
+*.pfx
+*.pem
+*.key
+.env
+.env.*
+!.env.example
+""")
+
     with open(os.path.join(project_dir, "AndroidManifest.xml"), "w") as f:
         f.write(f"""<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
