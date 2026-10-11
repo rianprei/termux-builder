@@ -1,5 +1,8 @@
 ## Unreleased
 
+- Evolui o merge nativo de manifests com prioridade deterministica, combinacao de atributos, diagnostico de conflitos, placeholders por projeto/flavor, diretivas `tools:*` selecionadas e validacao de `minSdkVersion`.
+- Falha explicitamente em placeholders ausentes, diretivas `tools:*` desconhecidas, XML invalido e manifests de biblioteca por symlink; documenta os limites restantes frente ao AGP.
+
 ### Fixed
 - `build --aab` and `android.aab: true` now reach the AAB pipeline after compilation; the APK build remains the default, and AAB output cannot be passed to `--install`.
 - APK output is returned only after `apksigner verify` succeeds; AAB output is checked for required bundle entries and a valid JAR signature.

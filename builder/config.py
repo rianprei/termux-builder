@@ -79,6 +79,17 @@ class Config:
         if self.application_id_suffix:
             self.package_name += self.application_id_suffix
 
+        manifest_placeholders = android.get("manifest-placeholders", {})
+        flavor_placeholders = flavor_cfg.get("manifest-placeholders", {})
+        if not isinstance(manifest_placeholders, dict) or not isinstance(flavor_placeholders, dict):
+            raise ValueError("manifest-placeholders must be a mapping")
+        self.manifest_placeholders = {}
+        for key, value in {**manifest_placeholders, **flavor_placeholders}.items():
+            if not isinstance(key, str) or not key or not isinstance(value, (str, int, float, bool)):
+                raise ValueError("manifest-placeholders must have non-empty string keys and scalar values")
+            self.manifest_placeholders[key] = str(value).lower() if isinstance(value, bool) else str(value)
+        self.manifest_placeholders["applicationId"] = self.package_name
+
         self.sources_dir = os.path.join(self.project_dir, android.get("sources-path", "src/java"))
         self.res_dir = os.path.join(self.project_dir, android.get("res-path", "src/res"))
         self.assets_dir = os.path.join(self.project_dir, android.get("assets-path", "src/assets"))

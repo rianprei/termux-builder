@@ -82,6 +82,8 @@ android:
   min-sdk: 21
   version-code: 1
   version-name: "1.0.0"
+  manifest-placeholders:
+    appLinkHost: "example.com"
 
   manifest-path: AndroidManifest.xml
   sources-path: src/java
@@ -110,6 +112,14 @@ android:
 ```
 
 Defina as variaveis de ambiente antes de um build de release. Valores sem o prefixo `env:` continuam aceitos para compatibilidade; mantenha senhas de release fora do `project.yml` e do Git. Builds AAB verificam a estrutura e a assinatura do arquivo e nao podem ser combinados com `--install`.
+
+### Merge de Manifest
+
+O builder expande `android.manifest-placeholders` em atributos XML antes de mesclar manifestos. `${applicationId}` usa o ID final do app, incluindo o sufixo da flavor. Uma flavor pode sobrescrever valores em `flavors.<nome>.manifest-placeholders`.
+
+O manifesto do app tem prioridade sobre bibliotecas. Bibliotecas diretas seguem a ordem de `dependencies`; bibliotecas sem correspondencia nessa lista seguem ordem lexica por caminho. A mesclagem combina atributos sem conflito, interrompe builds em conflitos e aceita `tools:replace`, `tools:remove`, `tools:strict`, `tools:selector` e `tools:node` com `merge`, `mergeOnlyAttributes`, `replace`, `remove`, `removeAll` ou `strict`. Tambem verifica incompatibilidade numerica de `minSdkVersion`, com suporte a `tools:overrideLibrary`, e os valores de SDK em `project.yml` prevalecem sobre os do XML.
+
+Esse caminho nativo ainda nao implementa todas as regras do Manifest Merger do Android Gradle Plugin. Sobreposicoes de manifestos de variantes, injecao de permissoes implicitas por `targetSdkVersion` e precedencia Maven transitiva equivalente ao Gradle permanecem fora da cobertura. Diretivas `tools:*` desconhecidas falham explicitamente. Consulte [Manage manifest files](https://developer.android.com/build/manage-manifests) para as regras completas do AGP.
 
 ## Estrutura do Projeto
 
@@ -193,7 +203,7 @@ src/jniLibs/
 | Kotlin, flavors e Compose | UNVERIFIED | Existem caminhos de implementação, mas não foram incluídos no build ponta a ponta desta matriz. Compose continua experimental. |
 | Projetos Gradle/AGP, Kotlin DSL, Capacitor e plugins Gradle | NOT IMPLEMENTED | O pipeline consome `project.yml`; não há adaptador para esses modelos de projeto. |
 | Herança Maven, BOM, `dependencyManagement` e exclusões avançadas | NOT IMPLEMENTED | O resolvedor atual não implementa toda a semântica do Maven. |
-| Placeholders e diretivas `tools:*` no merge de manifests | NOT IMPLEMENTED | O merge atual não equivale ao merger do AGP. |
+| Merge nativo de manifests, placeholders e diretivas selecionadas | UNVERIFIED | Testes unitarios cobrem prioridade, conflitos, placeholders, `tools:*` suportado e `uses-sdk`; ainda nao ha build AAR ponta a ponta nem equivalencia total com AGP. |
 | Módulos de feature/dynamic delivery em AAB | NOT IMPLEMENTED | O AAB validado contém somente o módulo `base`. |
 
 `VALIDATED` descreve apenas as combinações e comandos listados acima. O teste em Linux não comprova execução nativa em Termux/Bionic; a assinatura de debug comprova integridade, não confiança ou identidade de publicação.
@@ -210,7 +220,7 @@ src/jniLibs/
 | R8/ProGuard | ✅ | ❌ | ✅ |
 | Dependencias Maven | ✅ | ❌ | ✅ |
 | Suporte .aar | ✅ | ❌ | ✅ |
-| Manifest merge | ✅ | ❌ | ✅ |
+| Manifest merge | ✅ | ❌ | Parcial (sem equivalencia total com AGP) |
 | Debug keystore auto | ✅ | ❌ | ✅ |
 | Auto-installer | ❌ | ❌ | ✅ |
 | Doctor/diagnostico | ❌ | ❌ | ✅ |
