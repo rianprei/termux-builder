@@ -210,7 +210,7 @@ def _build_locked(args, config):
         for tool in ("java", "jarsigner"):
             if not find_bin(tool):
                 raise RuntimeError(f"{tool} not found — AAB requires a JDK; install: pkg install openjdk-17")
-        if not config.bin_aapt2 or not shutil.which(config.bin_aapt2):
+        if not resources._has_aapt2(config):
             raise RuntimeError("aapt2 not found or not executable — AAB requires protobuf resources; install aapt2 or configure bins.aapt2")
 
     if getattr(config, "compose", False):
@@ -218,6 +218,9 @@ def _build_locked(args, config):
 
     if getattr(config, "r8_enabled", False) and config.build_type == "release" and not shutil.which("r8"):
         raise RuntimeError("r8 enabled but 'r8' binary not found — install: pkg install r8")
+
+    if not build_aab and not resources._has_aapt2(config) and not shutil.which("aapt"):
+        raise RuntimeError("aapt2 and aapt not found or not executable — APK resources require aapt2 or the aapt v1 fallback; install aapt2 or configure bins.aapt2")
 
     resources._resolve_android_jar(config)
 

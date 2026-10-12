@@ -99,6 +99,24 @@ class AabBuildCommandTests(unittest.TestCase):
             clean.assert_not_called()
             resolve.assert_not_called()
 
+    def test_missing_apk_resource_tools_fail_before_clean_or_dependencies(self):
+        self.config.bin_aapt2 = '/nonexistent/configured-aapt2'
+        args = self.build_args()
+        args.clean = True
+        with patch('builder.resources.shutil.which', return_value=None), \
+             patch('builder.cli._do_clean') as clean, patch('builder.deps.resolve') as resolve:
+            with self.assertRaisesRegex(RuntimeError, 'aapt2.*aapt'):
+                cli._build(args)
+            clean.assert_not_called()
+            resolve.assert_not_called()
+            self.package_apk.assert_not_called()
+
+    def test_apk_keeps_aapt1_fallback_when_configured_aapt2_is_absent(self):
+        self.config.bin_aapt2 = '/nonexistent/configured-aapt2'
+        with patch('builder.resources.shutil.which', side_effect=lambda tool: sys.executable if tool == 'aapt' else None):
+            cli._build(self.build_args())
+        self.package_apk.assert_called_once_with(self.config)
+
     def test_missing_android_jar_fails_before_clean_or_dependency_resolution(self):
         self.patch_build_bundle()
         self.config.android_jar = os.path.join(self.tempdir.name, 'absent-android.jar')

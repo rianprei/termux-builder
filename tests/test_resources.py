@@ -1,5 +1,6 @@
 import hashlib
 import os
+import sys
 import tempfile
 import unittest
 from types import SimpleNamespace
@@ -9,6 +10,30 @@ from builder import resources
 
 
 class ResourceCompilationTests(unittest.TestCase):
+    def test_aapt2_detection_respects_configured_executable(self):
+        config = SimpleNamespace(bin_aapt2='/nonexistent/configured-aapt2')
+        with patch.object(resources.shutil, 'which', side_effect=lambda tool: sys.executable if tool == 'aapt2' else None):
+            self.assertFalse(resources._has_aapt2(config))
+        config.bin_aapt2 = sys.executable
+        self.assertTrue(resources._has_aapt2(config))
+
+    def test_aapt2_detection_rejects_non_executable_file(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            binary = os.path.join(temp_dir, 'aapt2')
+            with open(binary, 'w') as output:
+                output.write('not executable')
+            os.chmod(binary, 0o600)
+            with patch.dict(os.environ, {'PATH': ''}):
+                self.assertFalse(resources._has_aapt2(SimpleNamespace(bin_aapt2=binary)))
+
+    def test_invalid_configured_aapt2_uses_aapt1_for_apk_resources(self):
+        config = SimpleNamespace(bin_aapt2='/nonexistent/configured-aapt2')
+        with patch.object(resources.shutil, 'which', side_effect=lambda tool: sys.executable if tool == 'aapt2' else None), \
+             patch.object(resources, '_compile_aapt1') as aapt1, patch.object(resources, '_compile_aapt2') as aapt2:
+            resources.compile_resources(config)
+        aapt1.assert_called_once_with(config)
+        aapt2.assert_not_called()
+
     def test_aapt2_compiles_same_named_libraries_to_distinct_outputs(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             compiled_res_dir = os.path.join(temp_dir, "compiled")

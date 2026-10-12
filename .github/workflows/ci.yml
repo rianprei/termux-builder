@@ -150,6 +150,16 @@ jobs:
         run: python3 tests/integration/verify_aab_preflight.py
       - name: Real JDK toolchain cache corruption regression
         run: python3 tests/integration/verify_toolchain_cache.py
+      - name: Resource tools preflight and real AAPT1 fallback APK
+        run: >-
+          python3 tests/integration/verify_resource_tools.py
+          --sdk "$ANDROID_HOME"
+          --target-sdk 34
+          --aapt "$ANDROID_HOME/build-tools/35.0.0/aapt"
+          --aapt2 "$ANDROID_HOME/build-tools/35.0.0/aapt2"
+          --d8 "$ANDROID_HOME/build-tools/35.0.0/d8"
+          --apksigner "$ANDROID_HOME/build-tools/35.0.0/apksigner"
+          --dexdump "$ANDROID_HOME/build-tools/35.0.0/dexdump"
       - name: Real mixed Java Kotlin application build
         run: >-
           python3 tests/integration/verify_mixed_compile.py

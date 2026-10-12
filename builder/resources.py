@@ -57,9 +57,7 @@ def _resolve_android_jar(config):
 
 
 def _has_aapt2(config):
-    return shutil.which("aapt2") is not None or (
-        config.bin_aapt2 != "aapt2" and os.path.isfile(config.bin_aapt2)
-    )
+    return bool(config.bin_aapt2 and shutil.which(config.bin_aapt2))
 
 
 def compile_resources(config):
