@@ -99,6 +99,19 @@ class AabBuildCommandTests(unittest.TestCase):
             clean.assert_not_called()
             resolve.assert_not_called()
 
+    def test_combined_abi_and_density_splits_fail_before_clean(self):
+        self.config.abi_splits = True
+        self.config.density_splits = True
+        args = self.build_args()
+        args.clean = True
+        with patch('builder.cli._do_clean') as clean, patch('builder.deps.resolve') as resolve, \
+             patch('builder.packager.available_abis', return_value=['arm64-v8a']):
+            with self.assertRaisesRegex(ValueError, 'abi-splits.*density-splits'):
+                cli._build(args)
+            clean.assert_not_called()
+            resolve.assert_not_called()
+            self.package_apk.assert_not_called()
+
     def test_missing_apk_resource_tools_fail_before_clean_or_dependencies(self):
         self.config.bin_aapt2 = '/nonexistent/configured-aapt2'
         args = self.build_args()

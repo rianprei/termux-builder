@@ -10,6 +10,46 @@ from builder import resources
 
 
 class ResourceCompilationTests(unittest.TestCase):
+    def test_aapt1_density_splits_are_requested_and_returned(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config = SimpleNamespace(
+                build_dir=temp_dir, bin_dir=temp_dir, gen_dir=os.path.join(temp_dir, 'gen'),
+                assets_dir=os.path.join(temp_dir, 'assets'), manifest_path='AndroidManifest.xml',
+                res_dir=os.path.join(temp_dir, 'res'), min_sdk=21, target_sdk=34,
+                version_code=1, version_name='1.0', bin_aapt2='', density_splits=True,
+            )
+            with patch.object(resources, 'run') as run, patch.object(
+                resources, '_get_lib_packages', return_value=''
+            ), patch.object(resources, '_resolve_android_jar', return_value='android.jar'):
+                result = resources.link_resources(config)
+            expected = [(density, os.path.join(temp_dir, 'gen.apk.res_' + density + '-v4'))
+                        for density in resources._DENSITY_BUCKETS]
+            self.assertEqual(result, expected)
+            command = run.call_args.args[0]
+            requested = [command[index + 1] for index, value in enumerate(command) if value == '--split']
+            self.assertEqual(requested, [density + '-v4' for density in resources._DENSITY_BUCKETS])
+
+    def test_aapt1_refuses_symlinked_density_split_output(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            target = os.path.join(temp_dir, 'outside.apk')
+            with open(target, 'wb') as output:
+                output.write(b'preserve me')
+            os.symlink(target, os.path.join(temp_dir, 'gen.apk.res_hdpi-v4'))
+            config = SimpleNamespace(
+                build_dir=temp_dir, bin_dir=temp_dir, gen_dir=os.path.join(temp_dir, 'gen'),
+                assets_dir=os.path.join(temp_dir, 'assets'), manifest_path='AndroidManifest.xml',
+                res_dir=os.path.join(temp_dir, 'res'), min_sdk=21, target_sdk=34,
+                version_code=1, version_name='1.0', density_splits=True,
+            )
+            with patch.object(resources, 'run') as run, patch.object(
+                resources, '_get_lib_packages', return_value=''
+            ):
+                with self.assertRaisesRegex(ValueError, 'must not be a symlink'):
+                    resources._link_aapt1(config, 'android.jar')
+            run.assert_not_called()
+            with open(target, 'rb') as input_file:
+                self.assertEqual(input_file.read(), b'preserve me')
+
     def test_aapt2_detection_respects_configured_executable(self):
         config = SimpleNamespace(bin_aapt2='/nonexistent/configured-aapt2')
         with patch.object(resources.shutil, 'which', side_effect=lambda tool: sys.executable if tool == 'aapt2' else None):

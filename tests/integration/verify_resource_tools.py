@@ -1,5 +1,6 @@
-"""Verify resource tool preflight and a real APK through the AAPT1 fallback."""
+"""Verify resource preflight and real AAPT1 APKs, including density splits."""
 import argparse
+import base64
 import os
 from pathlib import Path
 import re
@@ -96,6 +97,98 @@ def main():
         subprocess.run([args.apksigner, 'verify', str(artifact)], check=True, capture_output=True)
         print('REAL AAPT1 FALLBACK APK VERIFIED: DEX definition, CRC and signature; configured non-executable '
               'aapt2 ignored, unrelated executable aapt2 not selected', flush=True)
+
+        densities = ('ldpi', 'mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi')
+        resource_root = Path(Config(project).res_dir)
+        png = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=')
+        for density in densities:
+            directory = resource_root / ('drawable-' + density)
+            directory.mkdir(parents=True, exist_ok=True)
+            (directory / 'density_fixture.png').write_bytes(png)
+        raw['android']['density-splits'] = True
+        config_path.write_text(yaml.safe_dump(raw))
+        before = config_path.read_bytes()
+        result = invoke(['build', str(project)], dict(environment, PATH=str(tools) + os.pathsep + environment['PATH']))
+        output = result.stdout + result.stderr
+        print(output, flush=True)
+        assert result.returncode == 0 and output.count('Density split:') == 6, output
+        split_paths = [artifact.with_name(artifact.stem.removesuffix('-debug') + '-' + density + '-debug.apk')
+                       for density in densities]
+        base_signing = subprocess.run([args.apksigner, 'verify', '--print-certs', str(artifact)],
+                                      check=True, capture_output=True, text=True).stdout
+        certificate_pattern = r'certificate SHA-256 digest: ([0-9a-fA-F]{64})'
+        certificates = set(re.findall(certificate_pattern, base_signing))
+        assert len(certificates) == 1
+        config = Config(project)
+        package_pattern = r"^package: name='([^']*)' versionCode='([^']*)' versionName='([^']*)'"
+        base_badging = subprocess.run([args.aapt, 'dump', 'badging', str(artifact)],
+                                      check=True, capture_output=True, text=True).stdout.splitlines()[0]
+        package_metadata = re.match(package_pattern, base_badging).groups()
+        assert package_metadata == (config.package_name, str(config.version_code), config.version_name)
+        for density, split in zip(densities, split_paths):
+            with zipfile.ZipFile(split) as archive:
+                assert archive.testzip() is None
+                assert 'classes.dex' not in archive.namelist()
+                assert 'res/drawable-' + density + '-v4/density_fixture.png' in archive.namelist()
+            signing = subprocess.run([args.apksigner, 'verify', '--print-certs', str(split)],
+                                     check=True, capture_output=True, text=True).stdout
+            assert set(re.findall(certificate_pattern, signing)) == certificates
+            badging = subprocess.run([args.aapt, 'dump', 'badging', str(split)],
+                                     check=True, capture_output=True, text=True).stdout.splitlines()[0]
+            split_metadata = re.match(package_pattern, badging).groups()
+            assert split_metadata[:2] == package_metadata[:2], (split_metadata, package_metadata)
+            # AAPT1 generates versionCode but omits optional versionName in split manifests.
+            assert split_metadata[2] in ('', package_metadata[2])
+            assert "split='config." + density + "_v4'" in badging
+        with zipfile.ZipFile(artifact) as archive:
+            assert archive.testzip() is None and not any('density_fixture.png' in name for name in archive.namelist())
+            dex.write_bytes(archive.read('classes.dex'))
+        listing = subprocess.run([args.dexdump, str(dex)], check=True, capture_output=True, text=True).stdout
+        assert re.search(r"Class descriptor\s*:\s*'" + re.escape(descriptor) + "'", listing)
+        subprocess.run([args.apksigner, 'verify', str(artifact)], check=True, capture_output=True)
+        assert config_path.read_bytes() == before
+        print('REAL AAPT1 SIX DENSITY SPLITS VERIFIED: signed base plus six resource-only APKs', flush=True)
+
+        previous = {path: path.read_bytes() for path in [artifact] + split_paths}
+        raw['android']['abi-splits'] = True
+        config_path.write_text(yaml.safe_dump(raw))
+        result = invoke(['build', str(project), '--clean'], dict(environment, PATH=str(tools) + os.pathsep + environment['PATH']))
+        output = result.stdout + result.stderr
+        assert result.returncode == 1 and 'abi-splits' in output and 'density-splits' in output, output
+        assert all(path.read_bytes() == data for path, data in previous.items())
+        raw['android']['abi-splits'] = False
+        config_path.write_text(yaml.safe_dump(raw))
+        before = config_path.read_bytes()
+
+        hdpi = resource_root / 'drawable-hdpi/density_fixture.png'
+        hdpi.unlink()
+        result = invoke(['build', str(project)], dict(environment, PATH=str(tools) + os.pathsep + environment['PATH']))
+        output = result.stdout + result.stderr
+        assert result.returncode == 1 and 'has no definition for density split' in output, output
+        assert 'BUILD SUCCESSFUL' not in output
+        assert all(path.read_bytes() == data for path, data in previous.items())
+        default = resource_root / 'drawable/density_fixture.png'
+        default.parent.mkdir(parents=True, exist_ok=True)
+        default.write_bytes(png)
+        result = invoke(['build', str(project)], dict(environment, PATH=str(tools) + os.pathsep + environment['PATH']))
+        output = result.stdout + result.stderr
+        print(output, flush=True)
+        assert result.returncode == 0 and output.count('Density split:') == 6, output
+        for split in split_paths:
+            with zipfile.ZipFile(split) as archive:
+                assert archive.testzip() is None
+                if split == split_paths[2]:
+                    assert not any('density_fixture.png' in name for name in archive.namelist())
+            subprocess.run([args.apksigner, 'verify', str(split)], check=True, capture_output=True)
+        with zipfile.ZipFile(artifact) as archive:
+            assert archive.testzip() is None and any('density_fixture.png' in name for name in archive.namelist())
+            dex.write_bytes(archive.read('classes.dex'))
+        listing = subprocess.run([args.dexdump, str(dex)], check=True, capture_output=True, text=True).stdout
+        assert re.search(r"Class descriptor\s*:\s*'" + re.escape(descriptor) + "'", listing)
+        subprocess.run([args.apksigner, 'verify', str(artifact)], check=True, capture_output=True)
+        assert config_path.read_bytes() == before
+        print('REAL AAPT1 DENSITY REGRESSIONS COMPLETE: incompatible flags preserve outputs; sparse '
+              'resources fail explicitly; recovery removes stale hdpi payload without clean', flush=True)
 
 
 if __name__ == '__main__':

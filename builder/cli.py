@@ -206,6 +206,9 @@ def _build_locked(args, config):
     if build_aab and args.install:
         raise ValueError("AAB builds cannot be installed directly; build an APK without --aab to use --install")
 
+    if not build_aab and config.abi_splits and getattr(config, "density_splits", False):
+        raise ValueError("APK builds cannot combine abi-splits and density-splits — choose one split mode")
+
     if build_aab:
         for tool in ("java", "jarsigner"):
             if not find_bin(tool):

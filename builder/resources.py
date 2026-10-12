@@ -165,8 +165,7 @@ def link_resources(config, proto_format=False):
         return _link_aapt2(config, android_jar, proto_format=proto_format)
     if proto_format:
         raise RuntimeError("AAB builds require aapt2 with --proto-format; install aapt2 and add it to PATH")
-    _link_aapt1(config, android_jar)
-    return None
+    return _link_aapt1(config, android_jar)
 
 
 def _link_aapt2(config, android_jar, proto_format=False):
@@ -304,7 +303,19 @@ def _link_aapt1(config, android_jar):
     if extra_packages:
         args += ["--extra-packages", extra_packages]
 
+    split_paths = []
+    if getattr(config, "density_splits", False):
+        for density in _DENSITY_BUCKETS:
+            configuration = density + "-v4"
+            split_path = output_res + "_" + configuration
+            ensure_output_path(
+                getattr(config, "build_dir", config.bin_dir), split_path, "AAPT split output"
+            )
+            args += ["--split", configuration]
+            split_paths.append((density, split_path))
+
     run(args)
+    return split_paths or None
 
 
 def _get_lib_packages(config):

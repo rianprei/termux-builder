@@ -150,7 +150,7 @@ jobs:
         run: python3 tests/integration/verify_aab_preflight.py
       - name: Real JDK toolchain cache corruption regression
         run: python3 tests/integration/verify_toolchain_cache.py
-      - name: Resource tools preflight and real AAPT1 fallback APK
+      - name: Resource preflight and real AAPT1 density split APKs
         run: >-
           python3 tests/integration/verify_resource_tools.py
           --sdk "$ANDROID_HOME"
