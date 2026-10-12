@@ -1,5 +1,7 @@
 import os
 import shutil
+import subprocess
+import tempfile
 from builder.utils import run, ensure_dir, ensure_output_path, log
 
 # ecj.jar paths (Termux native — no JDK needed)
@@ -26,6 +28,26 @@ def _can_use_ecj():
         shutil.which("dalvikvm") is not None
         and os.path.isfile(_ECJ_JAR)
     )
+
+
+def preflight_java(config):
+    if shutil.which(config.bin_javac):
+        return
+    if getattr(config, "annotation_processors", None) and not getattr(config, "ksp_enabled", False) and not (
+        getattr(config, "kapt_enabled", False) and config.find_kotlin_files()
+    ):
+        raise RuntimeError("annotation processors require javac (ecj does not support -processorpath) — install: pkg install openjdk-17")
+    if not _can_use_ecj():
+        raise RuntimeError("Java compiler not found or not executable — configure bins.javac or install: pkg install openjdk-17; native fallback requires ecj and dalvikvm")
+    java_ver = _effective_java_version(config)
+    with tempfile.TemporaryDirectory(prefix="termux-builder-ecj-preflight-") as temp:
+        source = os.path.join(temp, "TbCompilerProbe.java")
+        with open(source, "w") as probe:
+            probe.write("final class TbCompilerProbe {}\n")
+        try:
+            _compile_java_ecj([source], _resolve_android_jar(config), java_ver, temp)
+        except subprocess.CalledProcessError:
+            raise RuntimeError(f"ECJ preflight failed for Java {java_ver} and the selected SDK — configure bins.javac or install: pkg install openjdk-17; check the compiler diagnostics above") from None
 
 
 def _resolve_android_jar(config):

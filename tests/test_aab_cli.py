@@ -30,6 +30,8 @@ class AabBuildCommandTests(unittest.TestCase):
             view_binding=False,
             aab_enabled=False,
             bin_aapt2=sys.executable,
+            bin_javac=sys.executable,
+            find_kotlin_files=lambda: [],
             abi_splits=False,
             android_jar=os.path.join(self.tempdir.name, 'android.jar'),
         )
@@ -71,6 +73,71 @@ class AabBuildCommandTests(unittest.TestCase):
         self.build_bundle = self.patches.enter_context(
             patch("builder.aab.build_bundle", return_value="sample-debug.aab")
         )
+
+    def test_missing_java_compiler_fails_before_clean_and_dependencies(self):
+        self.patch_build_bundle()
+        for aab in (False, True):
+            with self.subTest(aab=aab), patch('builder.resources._has_aapt2', return_value=True), \
+                 patch('builder.cli.find_bin', return_value=sys.executable), \
+                 patch('builder.compiler.shutil.which', return_value=None), \
+                 patch('builder.compiler._can_use_ecj', return_value=False), \
+                 patch('builder.cli._do_clean') as clean, patch('builder.deps.resolve') as resolve:
+                args = self.build_args(aab=aab)
+                args.clean = True
+                with self.assertRaisesRegex(RuntimeError, 'Java compiler.*bins.javac'):
+                    cli._build(args)
+                clean.assert_not_called()
+                resolve.assert_not_called()
+
+    def test_java_apt_requires_javac_before_clean_even_with_ecj(self):
+        self.config.annotation_processors = ['fixture-processor.jar']
+        for kapt in (False, True):
+            self.config.kapt_enabled = kapt
+            with self.subTest(kapt=kapt), patch('builder.resources._has_aapt2', return_value=True), \
+                 patch('builder.compiler.shutil.which', return_value=None), \
+                 patch('builder.compiler._can_use_ecj', return_value=True), \
+                 patch('builder.cli._do_clean') as clean, patch('builder.deps.resolve') as resolve:
+                args = self.build_args()
+                args.clean = True
+                with self.assertRaisesRegex(RuntimeError, 'annotation processors require javac'):
+                    cli._build(args)
+                clean.assert_not_called()
+                resolve.assert_not_called()
+
+    def test_ecj_remains_available_for_plain_java_and_kotlin_processor_routes(self):
+        for route in ('plain', 'kapt', 'ksp'):
+            self.config.annotation_processors = [] if route == 'plain' else ['fixture-processor.jar']
+            self.config.kapt_enabled = route == 'kapt'
+            self.config.ksp_enabled = route == 'ksp'
+            self.config.find_kotlin_files = lambda: ['Value.kt'] if route == 'kapt' else []
+            with self.subTest(route=route), patch('builder.resources._has_aapt2', return_value=True), \
+                 patch('builder.compiler.shutil.which', return_value=None), \
+                 patch('builder.compiler._can_use_ecj', return_value=True), \
+                 patch('builder.compiler._effective_java_version', return_value=8), \
+                 patch('builder.compiler._compile_java_ecj') as compile_ecj:
+                cli._build(self.build_args())
+                compile_ecj.assert_called_once()
+                source, = compile_ecj.call_args.args[0]
+                self.assertEqual(compile_ecj.call_args.args[2], 8)
+                self.assertFalse(os.path.exists(source))
+        self.assertEqual(self.package_apk.call_count, 3)
+
+    def test_incompatible_ecj_fails_before_clean_and_dependencies(self):
+        self.patch_build_bundle()
+        for aab in (False, True):
+            with self.subTest(aab=aab), patch('builder.resources._has_aapt2', return_value=True), \
+                 patch('builder.cli.find_bin', return_value=sys.executable), \
+                 patch('builder.compiler.shutil.which', return_value=None), \
+                 patch('builder.compiler._can_use_ecj', return_value=True), \
+                 patch('builder.compiler._effective_java_version', return_value=17), \
+                 patch('builder.compiler._compile_java_ecj', side_effect=subprocess.CalledProcessError(255, ['dalvikvm'])), \
+                 patch('builder.cli._do_clean') as clean, patch('builder.deps.resolve') as resolve:
+                args = self.build_args(aab=aab)
+                args.clean = True
+                with self.assertRaisesRegex(RuntimeError, 'ECJ.*Java 17.*javac'):
+                    cli._build(args)
+                clean.assert_not_called()
+                resolve.assert_not_called()
 
     def test_missing_aab_tools_fail_before_clean_or_dependency_resolution(self):
         self.patch_build_bundle()
@@ -126,7 +193,7 @@ class AabBuildCommandTests(unittest.TestCase):
 
     def test_apk_keeps_aapt1_fallback_when_configured_aapt2_is_absent(self):
         self.config.bin_aapt2 = '/nonexistent/configured-aapt2'
-        with patch('builder.resources.shutil.which', side_effect=lambda tool: sys.executable if tool == 'aapt' else None):
+        with patch('builder.resources.shutil.which', side_effect=lambda tool: sys.executable if tool in ('aapt', self.config.bin_javac) else None):
             cli._build(self.build_args())
         self.package_apk.assert_called_once_with(self.config)
 

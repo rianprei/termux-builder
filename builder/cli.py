@@ -226,6 +226,7 @@ def _build_locked(args, config):
         raise RuntimeError("aapt2 and aapt not found or not executable — APK resources require aapt2 or the aapt v1 fallback; install aapt2 or configure bins.aapt2")
 
     resources._resolve_android_jar(config)
+    compiler.preflight_java(config)
 
     if args.clean:
         _do_clean(config)
