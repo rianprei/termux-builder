@@ -1,4 +1,4 @@
-"""Real Kotlin DSL/flavor builds through the public installed-Gradle adapter."""
+"""Real mixed Java/Kotlin, Kotlin DSL and flavor builds through installed Gradle."""
 import argparse
 import hashlib
 import json
@@ -11,6 +11,8 @@ import sys
 import tempfile
 import time
 import zipfile
+
+import builder
 
 
 def main():
@@ -25,7 +27,7 @@ def main():
     args = parser.parse_args()
     for name in ('gradle', 'sdk', 'aapt2', 'apksigner', 'dexdump', 'bundletool_jar'):
         setattr(args, name, str(Path(getattr(args, name)).resolve(strict=True)))
-    base_environment = dict(os.environ, PYTHONPATH=str(Path(__file__).resolve().parents[2]))
+    base_environment = dict(os.environ, PYTHONPATH=str(Path(builder.__file__).resolve().parent.parent))
     with tempfile.TemporaryDirectory(prefix='termux-builder gradle ') as temporary:
         project = Path(temporary)
         (project / 'settings.gradle.kts').write_text('rootProject.name = "fixture"\ninclude(":mobile")\n')
@@ -58,10 +60,18 @@ configure<com.android.build.api.dsl.ApplicationExtension> {
         manifest = module / 'src/main/AndroidManifest.xml'
         manifest.write_text('''<manifest xmlns:android="http://schemas.android.com/apk/res/android"><application android:label="@string/app_name"><activity android:name="fixture.gradle.MainActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity></application></manifest>''')
         activity = source / 'MainActivity.java'
-        body = 'package fixture.gradle; public class MainActivity extends android.app.Activity { static class DeletedMarker {} }'
+        body = 'package fixture.gradle; public class MainActivity extends android.app.Activity { public static int value() { return JavaBridge.fromKotlin(); } static class DeletedMarker {} }'
         activity.write_text(body)
         removed = source / 'Removed.java'
         removed.write_text('package fixture.gradle; public class Removed {}')
+        (source / 'JavaBridge.java').write_text('package fixture.gradle; public class JavaBridge { public static int base() { return 2; } public static int fromKotlin() { return KotlinBridge.answer(); } }')
+        kotlin = module / 'src/main/kotlin/fixture/gradle'
+        kotlin.mkdir(parents=True)
+        bridge = kotlin / 'KotlinBridge.kt'
+        kotlin_body = 'package fixture.gradle\nobject KotlinBridge { @JvmStatic fun answer(): Int = JavaBridge.base() + 3; class DeletedKotlinMarker }'
+        bridge.write_text(kotlin_body)
+        removed_kotlin = kotlin / 'RemovedKotlin.kt'
+        removed_kotlin.write_text('package fixture.gradle\nclass RemovedKotlin')
         values = resources / 'strings.xml'
         values.write_text('<resources><string name="app_name">Gradle fixture one</string></resources>')
 
@@ -101,7 +111,10 @@ configure<com.android.build.api.dsl.ApplicationExtension> {
                     listing = subprocess.run([args.dexdump, str(dex)], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True).stdout
                     descriptors.update(re.findall(r"Class descriptor\s*:\s*'([^']+)'", listing))
             assert 'Lfixture/gradle/MainActivity;' in descriptors
-            for deleted in ('Lfixture/gradle/MainActivity$DeletedMarker;', 'Lfixture/gradle/Removed;'):
+            for name in ('JavaBridge', 'KotlinBridge'):
+                assert 'Lfixture/gradle/' + name + ';' in descriptors, name
+            for deleted in ('Lfixture/gradle/MainActivity$DeletedMarker;', 'Lfixture/gradle/Removed;',
+                            'Lfixture/gradle/KotlinBridge$DeletedKotlinMarker;', 'Lfixture/gradle/RemovedKotlin;'):
                 assert (deleted in descriptors) == present, (deleted, present)
             if artifact.suffix == '.apk':
                 subprocess.run([args.apksigner, 'verify', str(artifact)], check=True)
@@ -116,6 +129,8 @@ configure<com.android.build.api.dsl.ApplicationExtension> {
         check(invoke(), True)
         activity.write_text(body.replace(' static class DeletedMarker {}', ''))
         removed.unlink()
+        bridge.write_text(kotlin_body.replace('; class DeletedKotlinMarker', ''))
+        removed_kotlin.unlink()
         values.write_text('<resources><string name="app_name">Gradle fixture two</string></resources>')
         check(invoke(), False)
         listing = subprocess.run([args.aapt2, 'dump', 'resources', str(apk)], check=True, stdout=subprocess.PIPE, text=True).stdout
@@ -136,6 +151,7 @@ configure<com.android.build.api.dsl.ApplicationExtension> {
         empty = project / 'empty-gradle-cache'
         empty.mkdir()
         environment = dict(base_environment, GRADLE_USER_HOME=str(empty))
+        environment.pop('GRADLE_RO_DEP_CACHE', None)
         # Explicit offline invocation with an empty dependency cache must fail.
         previous = args.offline
         args.offline = True
@@ -216,7 +232,7 @@ Path(sys.argv[2]).write_text('cancelled Gradle task output')
                 script.write_bytes(original)
         check(invoke(), False)
         check(invoke('aab'), False)
-        print('GRADLE FIXTURE COMPLETE: real APK/AAB, flavor, Kotlin DSL, removal, unsigned release, selection, offline and cancellation recovery', flush=True)
+        print('GRADLE FIXTURE COMPLETE: real APK/AAB, mixed Java/Kotlin, flavor, Kotlin DSL, Java/Kotlin removal, unsigned release, selection, offline and cancellation recovery', flush=True)
 
 
 if __name__ == '__main__':

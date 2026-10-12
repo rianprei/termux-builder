@@ -47,7 +47,7 @@ jobs:
           PYTHON
       - name: Real signature coverage regression
         run: python3 tests/integration/verify_aab_signature.py
-      - name: Real Gradle flavor builds and negative cases
+      - name: Real Gradle mixed Java Kotlin flavor builds and negative cases
         run: |
           fixture_tools="$RUNNER_TEMP/gradle-fixture-tools"
           for mode in online offline; do
