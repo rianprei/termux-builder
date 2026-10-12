@@ -8,7 +8,8 @@ _SYSTEM_ANDROID_JAR = "/data/data/com.termux/files/usr/share/java/android.jar"
 
 
 def _dexer_is_dx(config):
-    return os.path.basename(config.bin_d8) != "d8" or shutil.which(config.bin_d8) is None
+    from builder.dexer import _has_d8
+    return not _has_d8(config)
 
 
 def _effective_java_version(config):

@@ -337,8 +337,11 @@ class Config:
         self.bin_kotlinc = self._resolve_bin("kotlinc", bins)
         # prefer d8, fallback to dx (Termux native)
         self.bin_d8 = self._resolve_bin("d8", bins)
+        self.uses_dx = os.path.basename(self.bin_d8) == "dx"
         if self.bin_d8 == "d8" and "d8" not in bins:
             self.bin_d8 = self._resolve_bin("dx", bins)
+            self.uses_dx = True
+        self.dexer_overridden = "d8" in bins or (self.uses_dx and "dx" in bins)
         self.bin_apksigner = self._resolve_bin("apksigner", bins)
         validate_build_directory(self)
 

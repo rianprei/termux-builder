@@ -12,6 +12,15 @@ from unittest.mock import patch
 from builder import deps, dexer, utils
 
 
+def _sdk_test_d8(root):
+    binary = root / 'sdk/build-tools/37.0.0/d8'
+    binary.parent.mkdir(parents=True)
+    sidecar = binary.parent / 'lib/d8.jar'
+    sidecar.parent.mkdir()
+    sidecar.write_bytes(b'test SDK toolchain')
+    return binary
+
+
 class KaptDexTests(unittest.TestCase):
     def test_unsafe_processor_class_is_rejected_before_dex(self):
         for kind in ('symlink', 'fifo'):
@@ -106,6 +115,44 @@ def _interrupt_library_cache_worker(started, values):
 
 
 class D8ToolDetectionTests(unittest.TestCase):
+    def test_renamed_dx_selection_is_not_d8(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            binary = Path(tempdir) / 'configured dexer'
+            binary.write_text('#!/bin/sh\n')
+            binary.chmod(0o755)
+            self.assertFalse(dexer._has_d8(SimpleNamespace(bin_d8=str(binary), uses_dx=True)))
+
+    def test_configured_dx_is_used_for_application_classes(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            config = SimpleNamespace(bin_d8=tempdir + '/configured dx', uses_dx=True,
+                build_dir=tempdir, dex_dir=tempdir, min_sdk=21,
+                java_classes_dir=tempdir + '/java', kotlin_classes_dir=tempdir + '/kotlin')
+            with patch.object(dexer, 'run') as run:
+                dexer._run_dx(config, [])
+            self.assertEqual(run.call_args.args[0][0], config.bin_d8)
+
+    def test_configured_renamed_d8_is_selected(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            binary = Path(tempdir) / 'custom-dexer'
+            binary.write_text('#!/bin/sh\n')
+            binary.chmod(0o755)
+            with patch.dict(os.environ, {'PATH': ''}):
+                self.assertTrue(dexer._has_d8(SimpleNamespace(bin_d8=str(binary))))
+
+    def test_dx_fallback_is_not_selected_as_d8(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            binary = Path(tempdir) / 'dx'
+            binary.write_text('#!/bin/sh\n')
+            binary.chmod(0o755)
+            self.assertFalse(dexer._has_d8(SimpleNamespace(bin_d8=str(binary))))
+
+    def test_non_executable_custom_d8_is_not_selected(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            binary = Path(tempdir) / 'custom-dexer'
+            binary.write_text('not executable')
+            binary.chmod(0o600)
+            self.assertFalse(dexer._has_d8(SimpleNamespace(bin_d8=str(binary))))
+
     def test_resolved_d8_path_does_not_require_tool_to_be_on_path(self):
         with tempfile.TemporaryDirectory() as tempdir:
             root = Path(tempdir)
@@ -122,6 +169,65 @@ class D8ToolDetectionTests(unittest.TestCase):
 
 
 class LibraryDexCacheTests(unittest.TestCase):
+    def test_sidecar_changes_invalidate_sdk_symlink_and_termux_layouts(self):
+        for kind in ('d8', 'dx'):
+            for layout in ('sdk', 'sibling', 'framework', 'termux-java', 'termux-dex'):
+                with self.subTest(kind=kind, layout=layout), tempfile.TemporaryDirectory() as tempdir:
+                    root = Path(tempdir)
+                    binary = root / 'bin' / kind
+                    binary.parent.mkdir()
+                    binary.write_bytes(b'tool')
+                    renamed = root / 'configured dexer'
+                    renamed.symlink_to(binary)
+                    if layout == 'sdk':
+                        sidecar = binary.parent / 'lib' / (kind + '.jar')
+                    elif layout == 'sibling':
+                        sidecar = binary.parent / (kind + '.jar')
+                    elif layout == 'framework':
+                        sidecar = root / 'framework' / (kind + '.jar')
+                    else:
+                        sidecar = root / 'share' / layout.split('-')[1] / (kind + '.jar')
+                    sidecar.parent.mkdir(parents=True, exist_ok=True)
+                    sidecar.write_bytes(b'original dexer')
+                    jar = root / 'library.jar'
+                    jar.write_bytes(b'library')
+                    api = root / 'android.jar'
+                    api.write_bytes(b'api')
+                    config = SimpleNamespace(bin_d8=str(renamed), uses_dx=kind == 'dx',
+                        libs_dir=tempdir, build_type='debug', min_sdk=21, android_jar=str(api))
+                    before = dexer._library_dex_fingerprint(config, [str(jar)], kind == 'd8')
+                    sidecar.write_bytes(b'updated dexer')
+                    self.assertNotEqual(before, dexer._library_dex_fingerprint(config, [str(jar)], kind == 'd8'))
+
+    def test_opaque_launchers_do_not_reuse_persistent_library_dex(self):
+        for use_d8, name, overridden in ((True, 'configured dexer', False), (False, 'configured dexer', False),
+                                         (True, 'd8', False), (False, 'dx', False), (True, 'd8', True)):
+            with self.subTest(use_d8=use_d8, name=name, overridden=overridden), tempfile.TemporaryDirectory() as tempdir:
+                root = Path(tempdir)
+                jar = root / 'library.jar'
+                jar.write_bytes(b'library')
+                api = root / 'android.jar'
+                api.write_bytes(b'api')
+                binary = _sdk_test_d8(root) if overridden else root / name
+                binary.write_bytes(b'opaque launcher')
+                build = root / 'build'
+                build.mkdir()
+                config = SimpleNamespace(bin_d8=str(binary), uses_dx=not use_d8, dexer_overridden=overridden,
+                    build_dir=str(build), libs_dir=tempdir, cache_dir=str(root / 'cache'),
+                    build_type='debug', min_sdk=21, android_jar=str(api), find_lib_jars=lambda: [str(jar)])
+
+                def write_dex(args):
+                    self.assertEqual(args[0], str(binary))
+                    output = (Path(args[args.index('--output') + 1]) / 'classes.dex' if use_d8
+                              else Path(next(a.split('=', 1)[1] for a in args if a.startswith('--output='))))
+                    output.write_bytes(b'dex')
+
+                with patch.object(dexer, 'run', side_effect=write_dex) as run:
+                    dexer._dex_libraries(config, use_d8)
+                    dexer._dex_libraries(config, use_d8)
+                self.assertEqual(run.call_count, 2)
+                self.assertTrue(Path(config.library_dex_dir).is_relative_to(build))
+
     def test_library_dex_cache_is_outside_dependency_and_reused_only_when_valid(self):
         with tempfile.TemporaryDirectory() as tempdir:
             root = Path(tempdir)
@@ -132,7 +238,7 @@ class LibraryDexCacheTests(unittest.TestCase):
             jar.write_bytes(b"library jar")
             android_jar = root / "android.jar"
             android_jar.write_bytes(b"android api")
-            d8 = root / "d8"
+            d8 = _sdk_test_d8(root)
             d8.write_bytes(b"d8 toolchain")
             cache_root = root / ".cache" / "library-dex"
             cache_root.mkdir(parents=True)
@@ -200,7 +306,7 @@ class LibraryDexCacheTests(unittest.TestCase):
             jar_b.write_bytes(b"library b")
             android_jar = root / "android.jar"
             android_jar.write_bytes(b"android api")
-            d8 = root / "d8"
+            d8 = _sdk_test_d8(root)
             d8.write_bytes(b"d8 toolchain")
 
             def make_config(jar):
@@ -238,7 +344,7 @@ class LibraryDexCacheTests(unittest.TestCase):
             jar.write_bytes(b"library jar")
             android_jar = root / "android.jar"
             android_jar.write_bytes(b"android api")
-            d8 = root / "d8"
+            d8 = _sdk_test_d8(root)
             d8.write_text(
                 f"#!{sys.executable}\n"
                 "import os, sys, time\n"
@@ -305,7 +411,7 @@ class LibraryDexCacheTests(unittest.TestCase):
             jar.write_bytes(b"library jar")
             android_jar = root / "android.jar"
             android_jar.write_bytes(b"android api")
-            d8 = root / "d8"
+            d8 = _sdk_test_d8(root)
             d8.write_bytes(b"d8 toolchain")
             config = SimpleNamespace(
                 libs_dir=str(libs_dir),
@@ -455,7 +561,7 @@ class LibraryDexCacheTests(unittest.TestCase):
             jar.write_bytes(b"library jar")
             android_jar = root / "android.jar"
             android_jar.write_bytes(b"android api")
-            d8 = root / "d8"
+            d8 = _sdk_test_d8(root)
             d8.write_bytes(b"d8 toolchain")
             config = SimpleNamespace(
                 libs_dir=str(libs_dir),
@@ -495,7 +601,7 @@ class LibraryDexCacheTests(unittest.TestCase):
             jar.write_bytes(b"library jar")
             android_jar = root / "android.jar"
             android_jar.write_bytes(b"android api")
-            d8 = root / "d8"
+            d8 = _sdk_test_d8(root)
             d8.write_bytes(b"d8 toolchain")
             config = SimpleNamespace(
                 libs_dir=str(libs_dir),
@@ -532,7 +638,7 @@ class LibraryDexCacheTests(unittest.TestCase):
             jar.write_bytes(b"library jar")
             android_jar = root / "android.jar"
             android_jar.write_bytes(b"android api")
-            d8 = root / "d8"
+            d8 = _sdk_test_d8(root)
             d8.write_bytes(b"d8 toolchain")
             cache_dir = root / ".cache"
             cache_root = cache_dir / "library-dex"
@@ -585,7 +691,7 @@ class LibraryDexCacheTests(unittest.TestCase):
             jar.write_bytes(b"library jar")
             android_jar = root / "android.jar"
             android_jar.write_bytes(b"android api")
-            d8 = root / "d8"
+            d8 = _sdk_test_d8(root)
             d8.write_bytes(b"d8 toolchain")
             cache_root = root / ".cache" / "library-dex"
             cache_root.mkdir(parents=True)

@@ -8,6 +8,24 @@ from builder.config import Config
 
 
 class NativeLibraryDiscoveryTests(unittest.TestCase):
+    def test_configured_dexer_kind_survives_renamed_launchers(self):
+        for kind in ('d8', 'dx'):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as tempdir:
+                binary = os.path.join(tempdir, 'configured dexer')
+                with open(binary, 'w') as tool:
+                    tool.write('#!/bin/sh\n')
+                os.chmod(binary, 0o755)
+                with open(os.path.join(tempdir, 'AndroidManifest.xml'), 'w') as manifest:
+                    manifest.write('<manifest package="com.example.app"/>')
+                with open(os.path.join(tempdir, 'project.yml'), 'w') as project:
+                    json.dump({'android': {'sdk-path': os.path.join(tempdir, 'sdk')},
+                               'bins': {kind: binary}}, project)
+                with patch('builder.config.find_bin', return_value=None):
+                    config = Config(tempdir)
+                self.assertEqual(config.bin_d8, binary)
+                self.assertEqual(getattr(config, 'uses_dx', None), kind == 'dx')
+                self.assertTrue(getattr(config, 'dexer_overridden', False))
+
     def test_invalid_flavor_version_code_is_rejected(self):
         with tempfile.TemporaryDirectory() as tempdir:
             with open(os.path.join(tempdir, 'AndroidManifest.xml'), 'w') as manifest:
@@ -125,6 +143,7 @@ class NativeLibraryDiscoveryTests(unittest.TestCase):
                 config = Config(tempdir)
 
             self.assertEqual(config.bin_d8, d8)
+            self.assertFalse(getattr(config, 'dexer_overridden', True))
 
     def test_resolves_sdk_build_tool_when_it_is_not_on_path(self):
         with tempfile.TemporaryDirectory() as tempdir:

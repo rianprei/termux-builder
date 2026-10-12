@@ -10,6 +10,21 @@ from builder.compiler import _effective_java_version
 
 
 class EffectiveJavaVersionTests(unittest.TestCase):
+    def test_configured_renamed_d8_preserves_java_target(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            binary = Path(tempdir) / 'custom-dexer'
+            binary.write_text('#!/bin/sh\n')
+            binary.chmod(0o755)
+            with patch.dict(os.environ, {'PATH': ''}):
+                self.assertEqual(_effective_java_version(SimpleNamespace(bin_d8=str(binary), java_version=17)), 17)
+
+    def test_explicit_dx_keeps_java_8_compatibility_fallback(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            binary = Path(tempdir) / 'dx'
+            binary.write_text('#!/bin/sh\n')
+            binary.chmod(0o755)
+            self.assertEqual(_effective_java_version(SimpleNamespace(bin_d8=str(binary), java_version=17)), 8)
+
     def test_ksp_java_compilation_waits_for_generated_kotlin(self):
         for kotlin_sources in (['Value.kt'], []):
             with self.subTest(kotlin=kotlin_sources), tempfile.TemporaryDirectory() as temp:

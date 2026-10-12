@@ -61,8 +61,30 @@ def dex(config):
 
 
 def _has_d8(config):
-    # True only if bin_d8 resolves to the actual d8 binary, not dx fallback
-    return os.path.basename(config.bin_d8) == "d8" and shutil.which(config.bin_d8) is not None
+    uses_dx = getattr(config, "uses_dx", os.path.basename(config.bin_d8) == "dx")
+    return not uses_dx and shutil.which(config.bin_d8) is not None
+
+
+def _dx_bin(config):
+    selected = getattr(config, "bin_d8", "dx")
+    return selected if getattr(config, "uses_dx", os.path.basename(selected) == "dx") else "dx"
+
+
+def _library_dex_cacheable(config, use_d8):
+    if getattr(config, "dexer_overridden", False):
+        return False
+    name = "d8" if use_d8 else "dx"
+    tool = config.bin_d8 if use_d8 else _dx_bin(config)
+    resolved = os.path.realpath(shutil.which(tool) or tool)
+    tool_dir = os.path.dirname(resolved)
+    if os.path.basename(resolved) != name:
+        return False
+    if os.path.basename(os.path.dirname(tool_dir)) == "build-tools":
+        return os.path.isfile(os.path.join(tool_dir, "lib", name + ".jar"))
+    prefix = os.environ.get("PREFIX", "/data/data/com.termux/files/usr")
+    if resolved == os.path.join(os.path.realpath(prefix), "bin", name):
+        return os.path.isfile(os.path.join(prefix, "share", "java" if use_d8 else "dex", name + ".jar"))
+    return False
 
 
 def _run_r8(config, class_files, desugar_json=None):
@@ -138,7 +160,7 @@ def _run_dx(config, class_files):
                     break
 
     run([
-        "dx", "--dex",
+        _dx_bin(config), "--dex",
         f"--output={out_dex}",
         f"--min-sdk-version={config.min_sdk}",
         tmp_jar,
@@ -169,7 +191,9 @@ def _remove_stale_library_dex_staging(cache_root):
 
 
 def _dex_libraries(config, use_d8):
-    cache_root = os.path.join(config.cache_dir, "library-dex")
+    cacheable = _library_dex_cacheable(config, use_d8)
+    # Opaque launchers may invoke untracked tools. Keep their outputs inside this build.
+    cache_root = os.path.join(config.cache_dir, "library-dex") if cacheable else config.build_dir
     if os.path.islink(config.cache_dir) or os.path.islink(cache_root):
         raise RuntimeError(f"Library DEX cache directory must not be a symlink: {cache_root}")
     ensure_dir(cache_root)
@@ -183,10 +207,13 @@ def _dex_libraries(config, use_d8):
                 return
 
             fingerprint = _library_dex_fingerprint(config, lib_jars, use_d8)
-            cache_dir = os.path.join(cache_root, fingerprint)
+            cache_dir = os.path.join(cache_root, fingerprint if cacheable else "library-dex")
+            if not cacheable:
+                ensure_output_path(config.build_dir, cache_dir, "Uncached library DEX")
+                log.info("Regenerating library DEX: custom launcher dependencies are not fingerprinted")
             if os.path.islink(cache_dir):
                 raise RuntimeError(f"Library DEX cache entry must not be a symlink: {cache_dir}")
-            if _valid_library_dex_cache(cache_dir, fingerprint):
+            if cacheable and _valid_library_dex_cache(cache_dir, fingerprint):
                 config.library_dex_dir = cache_dir
                 return
             if not _build_library_dex_cache(
@@ -234,7 +261,7 @@ def _build_library_dex_cache(config, lib_jars, use_d8, cache_root, cache_dir, fi
                 ])
             else:
                 run([
-                    "dx", "--dex",
+                    _dx_bin(config), "--dex",
                     f"--output={os.path.join(output_dir, 'classes.dex')}",
                     f"--min-sdk-version={config.min_sdk}",
                     jar,
@@ -275,13 +302,16 @@ def _build_library_dex_cache(config, lib_jars, use_d8, cache_root, cache_dir, fi
 
 
 def _library_dex_fingerprint(config, lib_jars, use_d8):
-    tool = config.bin_d8 if use_d8 else "dx"
-    resolved_tool = shutil.which(tool) or tool
+    tool = config.bin_d8 if use_d8 else _dx_bin(config)
+    resolved_tool = os.path.realpath(shutil.which(tool) or tool)
     tool_files = [resolved_tool]
-    tool_name = os.path.basename(resolved_tool)
-    sidecar = "d8.jar" if tool_name == "d8" else "dx.jar" if tool_name == "dx" else None
-    if sidecar:
-        tool_files.append(os.path.join(os.path.dirname(resolved_tool), "lib", sidecar))
+    sidecar = "d8.jar" if use_d8 else "dx.jar"
+    tool_dir = os.path.dirname(resolved_tool)
+    tool_files.extend((os.path.join(tool_dir, sidecar),
+                       os.path.join(tool_dir, "lib", sidecar),
+                       os.path.join(tool_dir, "..", "framework", sidecar),
+                       os.path.join(tool_dir, "..", "share", "java", sidecar),
+                       os.path.join(tool_dir, "..", "share", "dex", sidecar)))
     tool_identity = {"path": os.path.realpath(resolved_tool), "files": []}
     for path in tool_files:
         if os.path.isfile(path):

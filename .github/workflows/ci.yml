@@ -303,3 +303,13 @@ jobs:
           --apksigner "$ANDROID_HOME/build-tools/35.0.0/apksigner"
           --dexdump "$ANDROID_HOME/build-tools/35.0.0/dexdump"
           --bundletool-jar "$RUNNER_TEMP/termux-builder-e2e/.cache/bundletool/bundletool-all-1.18.3.jar"
+      - name: Configured D8 launcher and library DEX regression
+        run: >-
+          python3 tests/integration/verify_dex_tool_selection.py
+          --sdk "$ANDROID_HOME"
+          --target-sdk 34
+          --aapt2 "$ANDROID_HOME/build-tools/35.0.0/aapt2"
+          --d8 "$ANDROID_HOME/build-tools/35.0.0/d8"
+          --apksigner "$ANDROID_HOME/build-tools/35.0.0/apksigner"
+          --dexdump "$ANDROID_HOME/build-tools/35.0.0/dexdump"
+          --bundletool-jar "$RUNNER_TEMP/termux-builder-e2e/.cache/bundletool/bundletool-all-1.18.3.jar"
